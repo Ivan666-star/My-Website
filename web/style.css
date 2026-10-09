@@ -1081,6 +1081,10 @@ body.pen-on{padding-bottom:calc(var(--penbar-h, 48px) + 26px + env(safe-area-ins
    ========================================================== */
 .math-toolbar{display:flex; gap:10px; flex-wrap:wrap; margin:2px 0 14px}
 .math-toolbar .btn{flex:1 1 auto}
+.math-search-row{display:grid; grid-template-columns:minmax(110px,1fr) minmax(0,2fr); align-items:start}
+.math-search-row > .field{min-width:0}
+.math-search-row > .field > span{white-space:nowrap}
+.math-search-row select, .math-search-row .field-input{height:44px; margin-top:0; padding:6px 12px; min-width:0}
 .math-sec-title{font-size:13px; font-weight:650; color:var(--ink); margin-bottom:9px; letter-spacing:.01em}
 
 /* 今日待复习 */

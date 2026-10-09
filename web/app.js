@@ -2533,7 +2533,7 @@ function renderMath() {
       <label class="field"><span>类型</span>
         <select id="mfKind"><option value="">全部</option>${mathKindOpts(MATH.f.kind)}</select></label>
     </div>
-    <div class="field-row">
+    <div class="field-row math-search-row">
       <label class="field"><span>复习状态</span>
         <select id="mfCycle">
           <option value="">全部</option>
@@ -2542,7 +2542,7 @@ function renderMath() {
           <option value="mastered"${MATH.f.cycle === "mastered" ? " selected" : ""}>已掌握</option>
           <option value="out"${MATH.f.cycle === "out" ? " selected" : ""}>已移出</option>
         </select></label>
-      <label class="field" style="flex:2"><span>搜索题干 / 知识点 / 解法</span>
+      <label class="field"><span>搜索题干 / 知识点 / 解法</span>
         <input class="field-input" id="mfQ" value="${esc(MATH.f.q)}" placeholder="例如：特征值、中值定理、傅里叶变换"></label>
     </div>`;
 
