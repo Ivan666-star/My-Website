@@ -1,0 +1,26 @@
+# 本地配置与学习数据
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.sqlite
+*.sqlite3
+*.db-*
+
+# 运行产物
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.log
+*.zip
+.pytest_cache/
+.playwright/
+test-results/
+
+# 编辑器与系统文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
