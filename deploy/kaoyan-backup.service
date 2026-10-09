@@ -1,0 +1,12 @@
+[Unit]
+Description=备份 AI 考研英语一训练系统数据库
+Documentation=file:/opt/kaoyan/deploy/README_部署步骤.md
+
+[Service]
+Type=oneshot
+User=kaoyan
+Group=kaoyan
+Environment=TZ=Asia/Shanghai
+ExecStart=/bin/bash /opt/kaoyan/deploy/backup_db.sh
+StandardOutput=journal
+StandardError=journal

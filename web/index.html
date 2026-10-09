@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f5f3ef">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Prism">
+<title>Prism</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/static/icons/icon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png">
+<link rel="stylesheet" href="/static/katex/katex.min.css">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <div class="brand" id="brandHome" title="回到主界面（科目选择）"><img class="brand-mark" src="/static/icons/mark.png" alt="">Prism</div>
+      <div class="sub" id="topDate">—</div>
+    </div>
+    <div class="topbar-right">
+      <!-- 任务类入口：只有「点进某个任务」之后才出现。
+           用户口径（2026-10-07）：主界面不该摆一屏按钮，
+           那时只该看见 账号标志 / 批注 / 设置 三样。 -->
+      <div class="topbar-task" id="topbarTask">
+        <div class="streak" id="streakChip" title="连续学习天数"><span id="streakNum">0</span><span class="unit">天</span></div>
+        <button class="icon-btn has-badge" id="btnReview" title="今日复习">🔁<span class="badge" id="revBadge" hidden>0</span></button>
+        <button class="icon-btn has-badge" id="btnSubjects" title="选择科目">🎓<span class="badge" id="mathBadge" hidden>0</span></button>
+        <button class="icon-btn" id="btnLibrary" title="素材库">📚</button>
+        <button class="icon-btn" id="btnStats" title="学习数据">📊</button>
+        <button class="icon-btn" id="btnHistory" title="历史 / 真题">🗂</button>
+      </div>
+      <!-- 数学模块专属入口：与英语任务区**互斥**（body.view-math 控制）。
+           用户 2026-10-07 指定就这两个：
+             · 错题总库 = 每道错题 + 它对应的知识点（回到浏览态）
+             · 开始刷题 = 从**全部**错题里随机抽一道（不受筛选影响）
+           窄屏换成短文案（总库 / 刷题），别把顶栏挤爆。 -->
+      <div class="topbar-task-math" id="topbarTaskMath">
+        <button class="tab-btn has-badge on" id="btnMathLib" title="错题总库：每道错题 + 它对应的知识点">
+          <span class="tb-full">错题总库</span><span class="tb-short">总库</span><span class="badge" id="mathLibBadge" hidden>0</span></button>
+        <button class="tab-btn" id="btnMathDrill" title="开始刷题：从全部错题里随机抽一道">
+          <span class="tb-full">开始刷题</span><span class="tb-short">刷题</span></button>
+      </div>
+      <!-- 常驻三样：批注 / 账号标志 / 设置 -->
+      <button class="icon-btn" id="btnPen" title="用笔批注">✍️</button>
+      <button class="acct-chip" id="btnAccount" title="我的账号"><span class="acct-avatar" id="acctAvatar">我</span><span class="acct-name" id="acctName"></span></button>
+      <button class="icon-btn" id="btnSettings" title="设置">⚙️<span class="badge" id="pendBadge" hidden>0</span></button>
+    </div>
+  </div>
+</header>
+
+<main id="app">
+
+<div id="todayView">
+
+  <!-- 无内容 / 未配置 -->
+  <section class="empty card" id="emptyState" hidden>
+    <h2 id="emptyTitle">今天的内容还没准备好</h2>
+    <p id="emptyDesc" class="muted"></p>
+    <div class="empty-actions">
+      <button class="btn primary" id="btnGenToday">生成今日内容</button>
+      <button class="btn" id="btnExamToday">🎯 导入真题精读</button>
+      <button class="btn ghost" id="btnImport">粘贴真实外刊材料</button>
+      <button class="btn primary" id="btnRetry" hidden>重试</button>
+    </div>
+  </section>
+
+  <!-- 加载中 -->
+  <section class="loading" id="loadingState">
+    <div class="spinner"></div>
+    <p class="muted">正在准备今天的学习内容…</p>
+  </section>
+
+  <!-- 文章 -->
+  <section id="articleWrap" hidden>
+
+    <div class="hero card">
+      <div class="hero-meta" id="heroMeta"></div>
+      <h1 class="hero-title" id="heroTitle"></h1>
+      <p class="hero-sub" id="heroSub"></p>
+      <div class="chips" id="heroChips"></div>
+    </div>
+
+    <article class="reading card" id="readingCard">
+      <div class="reading-hint">
+        <span class="dot"></span>
+        <span>第一遍请独立阅读，先不看翻译与解析</span>
+        <span class="timer" id="readTimer">00:00</span>
+      </div>
+      <div class="body-text" id="bodyText"></div>
+    </article>
+
+    <div class="gate" id="gate">
+      <button class="btn primary big" id="btnReveal">我读完了，展开解析 →</button>
+      <p class="muted small">展开后可以看到翻译、词汇、长难句、语法、阅读逻辑与写作任务</p>
+    </div>
+
+    <!-- ============ 解析区 ============ -->
+    <section id="analysis" hidden>
+
+      <div class="section-head">
+        <h2>精读解析</h2>
+        <span class="muted small" id="analysisNote"></span>
+      </div>
+
+      <!-- 中文翻译 -->
+      <details class="acc card" id="accTrans">
+        <summary><span class="ico">🇨🇳</span><span class="acc-title">中文翻译</span><span class="acc-sub">逐段对照 · 默认折叠</span></summary>
+        <div class="acc-body" id="transBody"></div>
+      </details>
+
+      <!-- 今日词汇 -->
+      <details class="acc card" id="accVocab" open>
+        <summary><span class="ico">🔤</span><span class="acc-title">今日词汇</span><span class="acc-sub" id="vocabSub"></span></summary>
+        <div class="acc-body">
+          <div class="vocab-legend">
+            <span class="lg lg-unknown">不认识</span>
+            <span class="lg lg-focus">重点学习</span>
+            <span class="lg lg-known">已掌握</span>
+            <span class="lg lg-fav">★ 收藏进积累库</span>
+          </div>
+          <div id="vocabList" class="vocab-list"></div>
+        </div>
+      </details>
+
+      <!-- 长难句 -->
+      <details class="acc card" id="accSent">
+        <summary><span class="ico">📐</span><span class="acc-title">今日长难句</span><span class="acc-sub" id="sentSub"></span></summary>
+        <div class="acc-body" id="sentList"></div>
+      </details>
+
+      <!-- 语法 -->
+      <details class="acc card" id="accGram">
+        <summary><span class="ico">🧠</span><span class="acc-title">今日语法</span><span class="acc-sub" id="gramSub"></span></summary>
+        <div class="acc-body" id="gramList"></div>
+      </details>
+
+      <!-- 阅读逻辑 -->
+      <details class="acc card" id="accLogic">
+        <summary><span class="ico">🔍</span><span class="acc-title">阅读逻辑</span><span class="acc-sub">篇章结构 · 作者态度</span></summary>
+        <div class="acc-body" id="logicBody"></div>
+      </details>
+
+      <!-- 命题视角：出题人怎么设题（本次改造的核心） -->
+      <details class="acc card" id="accExam" open>
+        <summary><span class="ico">🎯</span><span class="acc-title">命题视角</span><span class="acc-sub" id="examSub"></span></summary>
+        <div class="acc-body" id="examBody"></div>
+      </details>
+
+      <!-- 写作表达 -->
+      <details class="acc card" id="accWrite">
+        <summary><span class="ico">📝</span><span class="acc-title">今日写作表达</span><span class="acc-sub" id="writeSub"></span></summary>
+        <div class="acc-body" id="writeList"></div>
+      </details>
+
+      <!-- 仿写 -->
+      <section class="card imitate" id="imitateCard">
+        <div class="acc-title-row">
+          <span class="ico">✍️</span><span class="acc-title">今日仿写</span>
+          <span class="acc-sub" id="imitateSub">5～10 分钟 · 先自己写，再看批改</span>
+        </div>
+        <div id="imitateBody"></div>
+      </section>
+
+      <!-- 今日学习情况 -->
+      <section class="card" id="todayStatsCard">
+        <div class="acc-title-row">
+          <span class="ico">📊</span><span class="acc-title">今日学习情况</span>
+        </div>
+        <div class="mini-stats" id="todayStats"></div>
+      </section>
+
+    </section>
+  </section>
+
+  <footer class="page-foot">
+    <button class="btn ghost small" id="btnRegen">重新生成今日内容</button>
+    <button class="btn ghost small" id="btnBackToday" hidden>← 回到今日内容</button>
+    <span class="muted small" id="footNote"></span>
+  </footer>
+
+</div><!-- /todayView -->
+
+<!-- ============ 整页视图（不是弹层） ============
+     需要「待一会儿」的地方走这里：有自己的页头、自己的返回按钮，
+     并进浏览历史，所以手机返回键 / 侧滑手势都能回到今日内容。 -->
+
+<!-- 科目选择：这是「主界面」—— 先选英语 / 数学，再进各自的界面 -->
+<section class="page" id="page-subjects" hidden>
+  <div class="page-head">
+    <h2>选择科目</h2>
+  </div>
+  <div class="page-body" id="pageBody-subjects"></div>
+</section>
+
+<section class="page" id="page-library" hidden>
+  <div class="page-head">
+    <button class="icon-btn page-back" data-back title="返回今日内容">←</button>
+    <h2>素材库</h2>
+  </div>
+  <div class="page-body" id="pageBody-library"></div>
+</section>
+
+<section class="page" id="page-stats" hidden>
+  <div class="page-head">
+    <button class="icon-btn page-back" data-back title="返回今日内容">←</button>
+    <h2>学习数据</h2>
+  </div>
+  <div class="page-body" id="pageBody-stats"></div>
+</section>
+
+<section class="page" id="page-history" hidden>
+  <div class="page-head">
+    <button class="icon-btn page-back" data-back title="返回今日内容">←</button>
+    <h2>历史与真题</h2>
+  </div>
+  <div class="page-body" id="pageBody-history"></div>
+</section>
+
+<section class="page" id="page-review" hidden>
+  <div class="page-head">
+    <button class="icon-btn page-back" data-back title="返回今日内容">←</button>
+    <h2>今日复习</h2>
+  </div>
+  <div class="page-body" id="pageBody-review"></div>
+</section>
+
+<!-- 错题总库（数学一 + 信号与系统共用）：拍照 → 只取题干 → 确认分类 → 入错题库；先做题、后看解析。
+     标题由 app.js 按当前科目筛选动态改（错题总库 / 信号与系统 · 错题库）。 -->
+<section class="page" id="page-math" hidden>
+  <div class="page-head">
+    <button class="icon-btn page-back" data-back data-back-to="subjects" title="返回科目选择">←</button>
+    <h2 id="mathTitle">错题总库</h2>
+  </div>
+  <div class="page-body" id="pageBody-math"></div>
+</section>
+
+<!-- 用户管理：管理员给熟人开号、改密码、停用账号。账号互相看不到对方的数据。 -->
+<section class="page" id="page-admin" hidden>
+  <div class="page-head">
+    <button class="icon-btn page-back" data-back title="返回今日内容">←</button>
+    <h2>用户管理</h2>
+  </div>
+  <div class="page-body" id="pageBody-admin"></div>
+</section>
+
+</main>
+
+<!-- ============ 弹层 ============ -->
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-mask" data-close></div>
+  <div class="sheet-panel">
+    <div class="sheet-head">
+      <h3 id="sheetTitle">标题</h3>
+      <button class="icon-btn" data-close>✕</button>
+    </div>
+    <div class="sheet-body" id="sheetBody"></div>
+  </div>
+</div>
+
+<div class="math-marker" id="mathMarker" hidden role="dialog" aria-modal="true" aria-labelledby="mathMarkTitle">
+  <div class="math-marker-panel">
+    <div class="math-marker-head">
+      <div><h2 id="mathMarkTitle">标记要录入的题号</h2><span id="mathMarkCount" class="muted small"></span></div>
+      <button class="icon-btn" id="mathMarkCancel" title="取消导入" aria-label="取消导入">✕</button>
+    </div>
+    <div class="math-marker-stage" id="mathMarkStage">
+      <div class="math-marker-canvas" id="mathMarkCanvas">
+        <img id="mathMarkImage" alt="待识别的题目照片">
+        <canvas id="mathEditOverlay" class="math-edit-overlay" aria-label="照片编辑画布"></canvas>
+      </div>
+    </div>
+    <div class="math-marker-foot">
+      <div class="math-marker-zoom"><label for="mathMarkZoom">缩放</label><input type="range" id="mathMarkZoom" min="1" max="3" step="0.25" value="1"><span id="mathMarkZoomValue">100%</span><button class="btn tiny" id="mathMarkEdit" type="button" disabled>编辑照片</button></div>
+      <span id="mathMarkSelected" class="muted small">已标记 0 道</span>
+      <div class="math-marker-actions" id="mathMarkActions">
+        <button class="btn" id="mathMarkUndo">撤销标记</button>
+        <button class="btn" id="mathMarkSkip">跳过这张</button>
+        <button class="btn" id="mathMarkWhole">识别整张</button>
+        <button class="btn primary" id="mathMarkConfirm" disabled>识别所标记的题</button>
+      </div>
+      <div class="math-edit-tools" id="mathEditTools" hidden>
+        <div class="math-edit-row">
+          <div class="math-edit-modes" role="group" aria-label="照片编辑工具">
+            <button type="button" data-photo-tool="pan" title="移动照片">移动</button>
+            <button type="button" data-photo-tool="draw" title="在照片上画批注">画笔</button>
+            <button type="button" data-photo-tool="crop" title="拖动框选裁剪范围">裁剪</button>
+          </div>
+          <div class="math-edit-colors" role="group" aria-label="批注颜色">
+            <button type="button" data-photo-color="#db3b2d" style="--photo-ink:#db3b2d" title="红笔" aria-label="红笔"></button>
+            <button type="button" data-photo-color="#087cff" style="--photo-ink:#087cff" title="蓝笔" aria-label="蓝笔"></button>
+            <button type="button" data-photo-color="#202b2a" style="--photo-ink:#202b2a" title="黑笔" aria-label="黑笔"></button>
+          </div>
+          <label class="math-edit-width" for="mathEditWidth">粗细 <input type="range" id="mathEditWidth" min="3" max="18" step="1" value="8"></label>
+        </div>
+        <div class="math-edit-row math-edit-commands">
+          <button class="btn tiny" id="mathEditRotateLeft" type="button" title="向左旋转 90 度">↶ 旋转</button>
+          <button class="btn tiny" id="mathEditRotateRight" type="button" title="向右旋转 90 度">↷ 旋转</button>
+          <button class="btn tiny" id="mathEditCrop" type="button" disabled>应用裁剪</button>
+          <button class="btn tiny" id="mathEditUndo" type="button" disabled>撤销</button>
+          <button class="btn tiny" id="mathEditCancel" type="button">取消编辑</button>
+          <button class="btn tiny primary" id="mathEditDone" type="button">完成编辑</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="/static/katex/katex.min.js"></script>
+<script src="/static/pen.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

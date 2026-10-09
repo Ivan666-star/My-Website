@@ -1,0 +1,344 @@
+{
+  "article": {
+    "title": "The Vanishing Art of Waiting",
+    "subtitle": "Technology has removed almost every delay from daily life. Something valuable may have gone with them.",
+    "source": "Adapted from a psychology and technology column",
+    "topic": "心理学与人类行为",
+    "difficulty": 3,
+    "body": "Not long ago, patience was not a virtue so much as a condition of existence. A letter took a week to arrive; a photograph had to be developed; a question that could not be answered by the people in the room simply remained unanswered. Waiting was woven into the fabric of ordinary life, and nobody thought to complain about it.\n\nThat world has quietly disappeared. Streaming services deliver an entire series the moment we want it; food arrives at the door within half an hour; any fact that puzzles us can be retrieved in seconds. Engineers describe this as the removal of friction, and by almost every measurable standard it has made life easier. What is rarely examined, however, is what the disappearance of waiting has done to the people who no longer have to do it.\n\nPsychologists who study attention have begun to notice a pattern. When people are given a few minutes with nothing to do, many of them report the experience as actively unpleasant, and reach for a phone within seconds. One widely cited experiment found that participants would rather administer mild electric shocks to themselves than sit quietly with their own thoughts for a quarter of an hour. The capacity to endure a dull interval — once taken for granted — appears to be weakening, and with it the tolerance for any task whose rewards arrive slowly.\n\nThis matters more than it might seem. Almost everything that is genuinely valuable, from learning a language to mastering an instrument to understanding a difficult argument, unfolds on a timescale that feels unrewarding at first. If the habit of abandoning anything that does not pay off immediately becomes ingrained, the casualties are precisely the pursuits that require sustained, unglamorous effort.\n\nNone of this argues for a return to inconvenience. The point is subtler: friction is not always an obstacle to be eliminated, and some forms of waiting are worth protecting deliberately. The challenge for the coming decade is not to make everything faster, but to notice which delays we should keep — and to defend them against a culture that has come to treat every pause as a problem to be solved."
+  },
+  "analysis": {
+    "translation": [
+      {
+        "en": "Not long ago, patience was not a virtue so much as a condition of existence.",
+        "zh": "不久之前，耐心与其说是一种美德，不如说是一种生存的基本条件。",
+        "note": "not ... so much as ... 是考研高频比较结构，意思不是「既不…也不…」，而是「与其说 A，不如说 B」，重点落在 so much as 后面的成分上。"
+      },
+      {
+        "en": "That world has quietly disappeared. ... What is rarely examined, however, is what the disappearance of waiting has done to the people who no longer have to do it.",
+        "zh": "那个世界已经悄然消失。流媒体服务在我们想要的瞬间就送来整季剧集；食物半小时内送到门口；任何让我们困惑的事实都能在几秒内被检索出来。工程师把这称为「消除摩擦」，而按几乎任何可衡量的标准，它都让生活更轻松了。然而很少有人审视的是：等待的消失，对那些再也不必等待的人做了什么。",
+        "note": "最后一句是主语从句（What is rarely examined）作主语、表语从句（what the disappearance... has done）作表语的典型结构，中间插入 however，阅读时先抓住 is 前后两个从句。"
+      },
+      {
+        "en": "Psychologists who study attention have begun to notice a pattern. ... The capacity to endure a dull interval — once taken for granted — appears to be weakening, and with it the tolerance for any task whose rewards arrive slowly.",
+        "zh": "研究注意力的心理学家已经开始注意到一种模式。当人们被给予几分钟无事可做的时间时，许多人把这种体验描述为明显的难受，并在几秒内伸手去拿手机。一项被广泛引用的实验发现，比起安静地与自己独处一刻钟，参与者宁愿对自己施加轻微电击。忍受一段无聊间歇的能力——曾经被认为是理所当然的——似乎正在减弱，随之减弱的还有对任何回报来得缓慢的任务的容忍度。",
+        "note": "最后一句主干是 The capacity ... appears to be weakening。两个破折号之间是插入语（once taken for granted），and with it ... 是倒装式的补充，it 指前面的 weakening。"
+      },
+      {
+        "en": "This matters more than it might seem. ... If the habit of abandoning anything that does not pay off immediately becomes ingrained, the casualties are precisely the pursuits that require sustained, unglamorous effort.",
+        "zh": "这件事的重要性超乎它表面看起来的程度。几乎所有真正有价值的事情——从学一门语言到精通一件乐器，再到理解一个艰深的论证——都是在初期回报感很弱的时间尺度上逐渐展开的。如果「凡是没有立刻回报就放弃」的习惯变得根深蒂固，那么受害者恰恰是那些需要持续而毫不起眼的努力才能完成的事业。",
+        "note": "casualty 本义是「伤亡人员」，这里用作隐喻，指「牺牲品、受害者」。precisely 在此加强语气，相当于「恰恰是」。"
+      },
+      {
+        "en": "None of this argues for a return to inconvenience. ... The challenge for the coming decade is not to make everything faster, but to notice which delays we should keep — and to defend them against a culture that has come to treat every pause as a problem to be solved.",
+        "zh": "这一切都不意味着我们应该回到不方便的状态。问题的关键更为微妙：摩擦并不总是需要被消除的障碍，有些形式的等待值得我们刻意保护。未来十年的挑战不是让一切都更快，而是辨明哪些延迟应当被保留——并在一种已经把每一次停顿都当成待解决问题来对待的文化面前，为它们辩护。",
+        "note": "has come to do 表示「逐渐变成（某种状态）」，强调变化的渐进过程，是外刊极常见的表达。to be solved 是不定式作后置定语，修饰 a problem。"
+      }
+    ],
+    "vocab": [
+      {
+        "word": "be woven into the fabric of",
+        "pos": "phr.",
+        "meaning_in_context": "深深融入……之中，成为……不可分割的一部分",
+        "common_meanings": "weave 编织、织造；fabric 织物、结构、体系",
+        "cn_definition": "融入……的肌理；成为……的组成部分",
+        "example": "Waiting was woven into the fabric of ordinary life, and nobody thought to complain about it.",
+        "importance": 5
+      },
+      {
+        "word": "friction",
+        "pos": "n.",
+        "meaning_in_context": "（本文）阻碍、不顺畅之处，指使用产品或流程中的阻力",
+        "common_meanings": "摩擦（物理）；意见不合、冲突",
+        "cn_definition": "摩擦；（引申）阻力、不便",
+        "example": "Engineers describe this as the removal of friction, and by almost every measurable standard it has made life easier.",
+        "importance": 5
+      },
+      {
+        "word": "retrieve",
+        "pos": "v.",
+        "meaning_in_context": "检索、调取（信息）",
+        "common_meanings": "取回、找回（失物）；挽回（损失）",
+        "cn_definition": "取回；检索",
+        "example": "any fact that puzzles us can be retrieved in seconds",
+        "importance": 4
+      },
+      {
+        "word": "tolerance",
+        "pos": "n.",
+        "meaning_in_context": "（对不愉快事物的）忍受力、容忍度",
+        "common_meanings": "宽容、包容；耐受性",
+        "cn_definition": "容忍；耐受度",
+        "example": "with it the tolerance for any task whose rewards arrive slowly",
+        "importance": 4
+      },
+      {
+        "word": "administer",
+        "pos": "v.",
+        "meaning_in_context": "施加、给予（电击、药物等）",
+        "common_meanings": "管理、治理（国家、机构）；执行（法律）",
+        "cn_definition": "实施；给予；管理",
+        "example": "participants would rather administer mild electric shocks to themselves than sit quietly",
+        "importance": 4
+      },
+      {
+        "word": "take ... for granted",
+        "pos": "phr.",
+        "meaning_in_context": "认为……理所当然、想当然",
+        "common_meanings": "take sb for granted 不重视某人、把某人的付出视为应当",
+        "cn_definition": "视为理所当然",
+        "example": "The capacity to endure a dull interval — once taken for granted — appears to be weakening.",
+        "importance": 5
+      },
+      {
+        "word": "interval",
+        "pos": "n.",
+        "meaning_in_context": "（一段时间）间隔、间歇",
+        "common_meanings": "幕间休息；音程",
+        "cn_definition": "间隔；间歇",
+        "example": "The capacity to endure a dull interval appears to be weakening.",
+        "importance": 3
+      },
+      {
+        "word": "ingrained",
+        "pos": "adj.",
+        "meaning_in_context": "根深蒂固的、难以改变的",
+        "common_meanings": "be/become ingrained in sth 深植于……",
+        "cn_definition": "根深蒂固的",
+        "example": "If the habit of abandoning anything that does not pay off immediately becomes ingrained...",
+        "importance": 4
+      },
+      {
+        "word": "unglamorous",
+        "pos": "adj.",
+        "meaning_in_context": "不起眼的、不光鲜的",
+        "common_meanings": "glamorous 有魅力的、迷人的；glamour 魅力",
+        "cn_definition": "枯燥无光的；不起眼的",
+        "example": "the pursuits that require sustained, unglamorous effort",
+        "importance": 3
+      },
+      {
+        "word": "casualty",
+        "pos": "n.",
+        "meaning_in_context": "（隐喻）牺牲品、受害者",
+        "common_meanings": "（事故、战争中的）伤亡人员；受害的事物",
+        "cn_definition": "伤亡者；（喻）牺牲品",
+        "example": "the casualties are precisely the pursuits that require sustained, unglamorous effort",
+        "importance": 5
+      },
+      {
+        "word": "unfold",
+        "pos": "v.",
+        "meaning_in_context": "（事情）逐渐展开、逐步展现",
+        "common_meanings": "展开、打开（折叠物）；阐明",
+        "cn_definition": "展开；逐渐显露",
+        "example": "everything that is genuinely valuable ... unfolds on a timescale that feels unrewarding at first",
+        "importance": 3
+      },
+      {
+        "word": "subtle",
+        "pos": "adj.",
+        "meaning_in_context": "微妙的、不易察觉的、需要细想的",
+        "common_meanings": "精巧的；敏锐的（subtle mind）",
+        "cn_definition": "微妙的；细微的",
+        "example": "The point is subtler: friction is not always an obstacle to be eliminated.",
+        "importance": 4
+      }
+    ],
+    "sentences": [
+      {
+        "en": "What is rarely examined, however, is what the disappearance of waiting has done to the people who no longer have to do it.",
+        "zh": "然而，很少有人审视的是：等待的消失，对那些再也不必等待的人做了什么。",
+        "skeleton": "What is rarely examined is what ... has done to the people.",
+        "main_clause": "What is rarely examined is what the disappearance of waiting has done",
+        "subject": "What is rarely examined（主语从句，however 是插入成分）",
+        "predicate": "is",
+        "object": "what the disappearance of waiting has done to the people who no longer have to do it（表语从句）",
+        "clauses": [
+          "主语从句：What is rarely examined —— 作整句主语，译为「很少有人审视的是……」",
+          "表语从句：what the disappearance of waiting has done —— 作 is 的表语",
+          "定语从句：who no longer have to do it —— 修饰 the people，指的是「不必再等待的人」"
+        ],
+        "modifiers": [
+          "however —— 插入语，表示转折，阅读时可以先跳过后再回读",
+          "of waiting —— 介词短语作后置定语，修饰 the disappearance",
+          "to the people —— 介词短语作状语，说明 do 的对象"
+        ],
+        "non_finite": "to do it —— 不定式，与前面的 have to 呼应",
+        "insertion": "however 用逗号夹在主语和谓语之间，属于典型插入语",
+        "appositive": "",
+        "logic": "转折 + 递进：先用 What 引导的主语从句设悬念，再在表语位置给出作者真正想说的结论",
+        "why_hard": "一句话里同时出现主语从句、表语从句和定语从句，且中间被 however 打断，很容易在第一次阅读时找不到主句的 is。考研阅读中这种「主语从句 + be + 表语从句」的框架极其常见，必须能一眼识别出主干。"
+      },
+      {
+        "en": "One widely cited experiment found that participants would rather administer mild electric shocks to themselves than sit quietly with their own thoughts for a quarter of an hour.",
+        "zh": "一项被广泛引用的实验发现，比起安静地与自己独处一刻钟，参与者宁愿对自己施加轻微电击。",
+        "skeleton": "One experiment found that participants would rather do A than do B.",
+        "main_clause": "One widely cited experiment found",
+        "subject": "One widely cited experiment",
+        "predicate": "found",
+        "object": "that participants would rather administer mild electric shocks to themselves than sit quietly for a quarter of an hour（宾语从句）",
+        "clauses": [
+          "宾语从句：that participants would rather administer ... than sit ... —— 作 found 的宾语"
+        ],
+        "modifiers": [
+          "widely cited —— 过去分词短语作前置定语，修饰 experiment",
+          "to themselves —— 反身代词，强调施受同体",
+          "with their own thoughts / for a quarter of an hour —— 介词短语作状语"
+        ],
+        "non_finite": "",
+        "insertion": "",
+        "appositive": "",
+        "logic": "对比：would rather A than B 结构，把「承受电击」和「独处思考」放在一起比较，突出后者的难以忍受",
+        "why_hard": "would rather A than B 是考研高频比较结构，两个动作必须在语法上保持平行（都是动词原形）。很多人在阅读时容易把 than 后面的内容误当成比较对象而丢掉主句逻辑。"
+      },
+      {
+        "en": "The capacity to endure a dull interval — once taken for granted — appears to be weakening, and with it the tolerance for any task whose rewards arrive slowly.",
+        "zh": "忍受一段无聊间歇的能力——曾经被认为是理所当然的——似乎正在减弱，随之减弱的还有对任何回报来得缓慢的任务的容忍度。",
+        "skeleton": "The capacity appears to be weakening, and with it the tolerance for any task.",
+        "main_clause": "The capacity ... appears to be weakening",
+        "subject": "The capacity to endure a dull interval",
+        "predicate": "appears",
+        "object": "to be weakening（不定式作表语）",
+        "clauses": [
+          "定语从句：whose rewards arrive slowly —— 修饰 any task"
+        ],
+        "modifiers": [
+          "to endure a dull interval —— 不定式作后置定语，修饰 capacity",
+          "once taken for granted —— 过去分词短语作插入语，补充说明 capacity 的过去状态",
+          "and with it ... —— 并列分句，it 指代前面的 weakening，构成倒装式省略（the tolerance 之后省略了 is weakening 的意思）"
+        ],
+        "non_finite": "to endure / to be weakening / once taken for granted —— 三个非谓语结构密集出现",
+        "insertion": "两个破折号之间的 once taken for granted",
+        "appositive": "",
+        "logic": "递进 + 省略并列：用 and with it 把同一趋势延伸到第二件事，形成「能力 A 减弱，随之 B 也减弱」的链条",
+        "why_hard": "主句其实很短（The capacity appears to be weakening），难点在于三个非谓语结构干扰视线；后半句 and with it ... 是省略了谓语的并列结构，必须靠逻辑补全，是这类长句最容易读错的地方。"
+      },
+      {
+        "en": "The challenge for the coming decade is not to make everything faster, but to notice which delays we should keep — and to defend them against a culture that has come to treat every pause as a problem to be solved.",
+        "zh": "未来十年的挑战不是让一切都更快，而是辨明哪些延迟应当被保留——并在一种已经把每一次停顿都当成待解决问题来对待的文化面前，为它们辩护。",
+        "skeleton": "The challenge is not to make everything faster, but to notice which delays we should keep and to defend them.",
+        "main_clause": "The challenge for the coming decade is not to make everything faster, but to notice ... and to defend ...",
+        "subject": "The challenge for the coming decade",
+        "predicate": "is",
+        "object": "not to make everything faster, but to notice ... and to defend ...（不定式并列作表语）",
+        "clauses": [
+          "宾语从句（作 notice 的宾语）：which delays we should keep",
+          "定语从句：that has come to treat every pause as a problem to be solved —— 修饰 a culture"
+        ],
+        "modifiers": [
+          "for the coming decade —— 介词短语作后置定语，修饰 the challenge",
+          "against a culture —— 介词短语作状语，说明 defend 的对抗对象",
+          "to be solved —— 不定式作后置定语，修饰 a problem"
+        ],
+        "non_finite": "not to make / to notice / to defend / to be solved —— 四个不定式，注意它们各自的语法功能不同",
+        "insertion": "破折号引出补充说明，把 defend 与前一个不定式并列",
+        "appositive": "",
+        "logic": "转折对比 + 递进：not ... but ... 摆出真正的挑战，破折号后再追加一层要求",
+        "why_hard": "not ... but ... 结构中的三个不定式并列，且被破折号打断，容易把 to defend 误认为独立句子。另外 has come to do 表示「逐渐变成」，若按「已经来了」直译会读不通。"
+      }
+    ],
+    "grammar": [
+      {
+        "name": "主语从句 + 表语从句（What ... is what ...）",
+        "category": "句法",
+        "explanation": "当主语本身是一个句子时，用 what 引导（what = the thing that），谓语用单数 is；表语位置如果也是一个句子，同样可以用 what 引导。这种「从句套从句」的框架在外刊的评论性段落里非常常见，读的时候要先把 is 找出来。",
+        "pattern": "What + 不完整句 + is + what/that + 不完整句",
+        "examples": [
+          "What is rarely examined, however, is what the disappearance of waiting has done to the people who no longer have to do it."
+        ]
+      },
+      {
+        "name": "定语从句（作后置定语，限制性 vs 非限制性）",
+        "category": "句法",
+        "explanation": "本文出现多种定语从句：who 修饰人、whose 修饰所属关系、that 修饰物、by which 修饰方式。判断定语从句的关键是：从句紧跟先行词，且从句内部一定缺成分（缺主语、宾语或状语）。whose rewards arrive slowly 中 whose 作定语，说明「任务的回报」。",
+        "pattern": "先行词 + who/which/that/whose + 不完整句",
+        "examples": [
+          "the tolerance for any task whose rewards arrive slowly",
+          "a culture that has come to treat every pause as a problem to be solved"
+        ]
+      },
+      {
+        "name": "插入语与破折号的分隔作用",
+        "category": "句法",
+        "explanation": "外刊喜欢用一对逗号或一对破折号把补充信息插在主语和谓语之间，制造「主谓分离」。阅读时最有效的办法是把插入成分整体括起来先跳过，先建立主干，再回头补信息。",
+        "pattern": "主语 —— 插入成分 —— 谓语",
+        "examples": [
+          "The capacity to endure a dull interval — once taken for granted — appears to be weakening.",
+          "What is rarely examined, however, is what ..."
+        ]
+      },
+      {
+        "name": "would rather A than B 与 not A but B 比较结构",
+        "category": "句法",
+        "explanation": "两类比较结构是考研阅读和写作的高频考点。would rather A than B 表示主观偏好，A、B 必须语法平行且都用动词原形；not A but B 表示否定前者、肯定后者，重点落在 but 后面。",
+        "pattern": "would rather + do A + than + do B；not + A + but + B",
+        "examples": [
+          "participants would rather administer mild electric shocks to themselves than sit quietly with their own thoughts",
+          "The challenge for the coming decade is not to make everything faster, but to notice which delays we should keep"
+        ]
+      }
+    ],
+    "logic": {
+      "overall": "文章指出：技术消除了生活中的各种等待，这虽然带来了便利，却正在削弱人们忍受「回报来得慢」的能力，而那些真正有价值的长期事业恰恰依赖这种能力；因此我们应当有意识地保护一部分「摩擦」。",
+      "structure": [
+        {"para": 1, "role": "引出话题（对比过去）", "main_idea": "在过去，等待是生活的常态，无人抱怨"},
+        {"para": 2, "role": "呈现变化并提出被忽视的问题", "main_idea": "技术消除了等待，但很少有人追问这对人产生了什么影响"},
+        {"para": 3, "role": "举例论证（心理学研究）", "main_idea": "忍受无聊间歇的能力正在下降，实验证据是宁肯自我电击也不愿独处"},
+        {"para": 4, "role": "阐明后果、拔高意义", "main_idea": "真正有价值的事情都在慢回报的时间尺度上展开，受害者恰是需要长期努力的事业"},
+        {"para": 5, "role": "收束并给出立场", "main_idea": "不应简单地追求更快，而要辨别并主动保护某些必要的延迟"}
+      ],
+      "author_attitude": "作者态度是谨慎的批判与呼吁（critical but constructive）：既不主张回到不便的过去（None of this argues for a return to inconvenience），也明确反对「把一切停顿都当成问题」的文化。立场体现在最后一段的 The point is subtler 和 not ... but ... 结构中。",
+      "reading_tips": [
+        "本篇是典型的「现象—研究—后果—立场」结构，第 2 段末尾的问句（What is rarely examined）就是全文的问题意识所在，抓住它就能抓住主旨。",
+        "注意 however、None of this、The point is subtler 这类转折与让步信号词，考研阅读的考点通常落在这些转折之后。",
+        "态度题要区分「作者反对什么」和「作者主张什么」：本文反对的是追求一切更快，主张的是保留部分必要的等待。"
+      ]
+    }
+  },
+  "writing": {
+    "items": [
+      {
+        "kind": "phrase",
+        "content": "be woven into the fabric of",
+        "cn": "深深融入……之中；成为……不可分割的一部分",
+        "example": "Waiting was woven into the fabric of ordinary life.",
+        "usage_note": "适合写「传统/文化/习惯」类话题的开头，比 be part of 高级得多。作文中可写 Tradition is woven into the fabric of every community."
+      },
+      {
+        "kind": "phrase",
+        "content": "take ... for granted",
+        "cn": "把……视为理所当然",
+        "example": "The capacity to endure a dull interval — once taken for granted — appears to be weakening.",
+        "usage_note": "议论文中用来引出「人们忽视了某个重要前提」，几乎万能。注意被动形式 once taken for granted 在句中作插入语非常地道。"
+      },
+      {
+        "kind": "phrase",
+        "content": "come to do sth",
+        "cn": "逐渐变得……；慢慢开始……",
+        "example": "a culture that has come to treat every pause as a problem to be solved",
+        "usage_note": "描述「随时代变化而形成的新观念」时极好用，例如 People have come to regard speed as a virtue in itself. 注意必须用完成时 has/have come to。"
+      },
+      {
+        "kind": "pattern",
+        "content": "What is rarely examined, however, is what ... has done to ...",
+        "cn": "然而，很少有人审视的是：……对……造成了什么影响。",
+        "example": "What is rarely examined, however, is what the disappearance of waiting has done to the people who no longer have to do it.",
+        "usage_note": "万能「转折+追问」句型，用于第二段提出更深层的问题，把文章从描述现象推进到分析影响。"
+      },
+      {
+        "kind": "pattern",
+        "content": "The challenge for ... is not to ..., but to ...",
+        "cn": "……面临的挑战不是……，而是……。",
+        "example": "The challenge for the coming decade is not to make everything faster, but to notice which delays we should keep.",
+        "usage_note": "结尾段提出主张的黄金句型，用 not ... but ... 制造对比，立场鲜明且句式工整。可替换为 The real task is not to ..., but to ..."
+      }
+    ],
+    "imitation": {
+      "prompt_cn": "请把下面这句话翻译成英文，尽量用上今天积累的表达（提示：可以用 come to 和 not ... but ... 结构）：\n\n真正值得警惕的，并不是科技让生活变得更便捷，而是我们逐渐失去了等待的耐心。",
+      "prompt_en": "What deserves our vigilance is not that technology has made life more convenient, but that we have gradually lost the patience to wait.",
+      "hint": "1) 「值得警惕的」可以用 What deserves ... 或 What is really alarming is ...；2) 「并不是……而是……」用 not ... but ...，注意两边结构要平行；3) 「逐渐失去」可以用 have come to lose / have gradually lost。",
+      "reference_answer": "What is really worth worrying about is not that technology has made life more convenient, but that we have come to lose the patience to wait."
+    }
+  }
+}

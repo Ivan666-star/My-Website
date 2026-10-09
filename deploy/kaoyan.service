@@ -1,0 +1,36 @@
+[Unit]
+Description=AI 考研英语一训练系统
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kaoyan
+Group=kaoyan
+WorkingDirectory=/opt/kaoyan
+
+# 时区必须显式指定：服务器的默认时区多半是 UTC，
+# 而「每天早上几点自动生成」是按本地时间判断的，不设就会差 8 小时。
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONIOENCODING=utf-8
+
+# 只监听 127.0.0.1：应用不直接对公网暴露，外网流量一律经 Caddy 转发。
+# --proxy-headers 让应用能正确识别自己被 HTTPS 代理着（否则登录凭据不会带 Secure）。
+ExecStart=/opt/kaoyan/venv/bin/python -m uvicorn app.main:app \
+    --host 127.0.0.1 --port 8848 \
+    --proxy-headers --forwarded-allow-ips=127.0.0.1
+
+Restart=always
+RestartSec=3
+
+# 日志统一进 journald，用 journalctl -u kaoyan 查看
+StandardOutput=journal
+StandardError=journal
+
+# 轻量加固：不给提权、独立临时目录
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

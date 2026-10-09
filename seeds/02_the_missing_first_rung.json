@@ -1,0 +1,346 @@
+{
+  "article": {
+    "title": "The Missing First Rung",
+    "subtitle": "If machines now do the work that trained a generation of juniors, where will the next experts come from?",
+    "source": "Adapted from an economics and employment column",
+    "topic": "经济与就业",
+    "difficulty": 3,
+    "body": "Every profession rests on an unglamorous apprenticeship. Junior lawyers review contracts, junior analysts build spreadsheets, junior journalists transcribe interviews. The work is repetitive and poorly paid, and it has always been justified by a single promise: that in doing it, beginners absorb the tacit knowledge their seniors cannot easily articulate.\n\nArtificial intelligence is now dismantling that promise. The tasks that once occupied a graduate's first two years — summarising documents, drafting routine correspondence, assembling data, checking facts — are precisely the tasks that large language models perform quickly and cheaply. Employers, under pressure to cut costs, have noticed. Entry-level hiring in several knowledge-intensive industries has fallen sharply since 2023, even in firms whose overall headcount has held steady.\n\nDefenders of the technology argue that this is simply creative destruction, and that new roles will emerge to replace the old ones. History offers some comfort here, since earlier waves of automation destroyed particular jobs while expanding the total demand for skilled labour. What that reassuring story overlooks, however, is the sequence. The roles that disappear first are the ones that produced experienced workers, and there is no obvious mechanism by which the next generation acquires judgement if nobody hires it to develop that judgement.\n\nSome firms are experimenting with alternatives. A handful of consultancies have begun recruiting graduates into judgement-intensive work from the outset, accepting that they will be slower and more expensive during their first year. Others have rebuilt apprenticeship schemes around supervision, treating machine output as something to be verified rather than trusted. Such arrangements are costly, and they depend on employers willing to invest in people who may eventually leave.\n\nThe uncomfortable possibility is that the problem will not correct itself through market adjustment alone. If the first rung of the ladder has genuinely gone, then somebody — firms, universities, or governments — has to build a substitute before the shortage of experienced staff becomes visible. Otherwise, the professions that now congratulate themselves on their efficiency may discover, a decade from now, that they have quietly consumed the very pipeline that produced their own experts."
+  },
+  "analysis": {
+    "translation": [
+      {
+        "en": "Every profession rests on an unglamorous apprenticeship. ... The work is repetitive and poorly paid, and it has always been justified by a single promise: that in doing it, beginners absorb the tacit knowledge their seniors cannot easily articulate.",
+        "zh": "每个行业都建立在一种毫不起眼的学徒制之上。初级律师审阅合同，初级分析师制作表格，初级记者整理访谈录音。这类工作重复、报酬低，却一直由一个承诺为其正名：在做的过程中，新手能够吸收前辈难以清楚言说的默会知识。",
+        "note": "冒号后的 that 从句不是定语从句，而是解释 promise 内容的同位语从句。判断办法：that 后面的成分本身完整（beginners absorb the tacit knowledge），不缺任何成分。"
+      },
+      {
+        "en": "Artificial intelligence is now dismantling that promise. ... Employers, under pressure to cut costs, have noticed. Entry-level hiring in several knowledge-intensive industries has fallen sharply since 2023, even in firms whose overall headcount has held steady.",
+        "zh": "人工智能正在瓦解这个承诺。曾经占据毕业生头两年工作的那些任务——总结文件、撰写例行信函、汇总数据、核对事实——恰恰是大语言模型完成得又快又便宜的任务。面临削减成本压力的雇主已经注意到了这一点。自 2023 年以来，若干知识密集型行业的初级岗位招聘大幅下降，即便在总人数保持稳定的公司里也是如此。",
+        "note": "第二句主干是 The tasks are precisely the tasks，两个破折号之间是同位语，补充说明哪些任务；最后是 that 定语从句。under pressure to cut costs 是插入的形容词短语，作 employers 的后置定语。"
+      },
+      {
+        "en": "Defenders of the technology argue that this is simply creative destruction ... What that reassuring story overlooks, however, is the sequence. ... and there is no obvious mechanism by which the next generation acquires judgement if nobody hires it to develop that judgement.",
+        "zh": "这项技术的辩护者认为，这不过是「创造性破坏」，新岗位会取代旧岗位。历史在这里提供了一些安慰，因为早先几轮自动化摧毁了特定工作的同时，扩大了对熟练劳动力的总需求。然而，那套令人安心的叙述所忽视的，是先后顺序：最先消失的岗位，恰恰是培养出有经验员工的那批岗位；如果没有人雇年轻人去锻炼判断力，就不存在明显的机制让他们获得判断力。",
+        "note": "What that reassuring story overlooks 是主语从句；by which 引导定语从句修饰 mechanism（= the mechanism by which ... 通过这种机制）。sequence 在此译为「先后顺序」，是理解全段的关键词。"
+      },
+      {
+        "en": "Some firms are experimenting with alternatives. ... Others have rebuilt apprenticeship schemes around supervision, treating machine output as something to be verified rather than trusted. Such arrangements are costly, and they depend on employers willing to invest in people who may eventually leave.",
+        "zh": "一些公司正在尝试其他方案。少数咨询公司已经开始把毕业生直接招入需要判断力的工作，并接受他们在第一年会更慢、更贵这一事实。另一些公司则围绕「监督」重建了学徒计划，把机器的产出当作需要核实、而非可以直接信任的东西。这类安排成本高昂，而且依赖于愿意投资于那些最终可能离职的员工的雇主。",
+        "note": "treating machine output as something to be verified 是现在分词短语作伴随状语；verified rather than trusted 是过去分词并列作后置定语，rather than 表否定对比。"
+      },
+      {
+        "en": "The uncomfortable possibility is that the problem will not correct itself through market adjustment alone. ... Otherwise, the professions that now congratulate themselves on their efficiency may discover, a decade from now, that they have quietly consumed the very pipeline that produced their own experts.",
+        "zh": "令人不安的一种可能是：这个问题不会仅靠市场调节自行纠正。如果阶梯的第一级确实消失了，那么总得有人——企业、大学或政府——在资深员工短缺变得可见之前，造出一个替代品。否则，那些如今还在为自己的效率沾沾自喜的行业，十年后可能会发现：它们已经悄悄消耗掉了那条培养出自己的专家的输送通道。",
+        "note": "最后一句的宾语从句被插入语 a decade from now 与谓语 may discover 隔开，属于典型的主谓宾分离，阅读时要先把 that 从句找出来。the very pipeline that ... 中 very 起强调作用，意为「正是那条……」。"
+      }
+    ],
+    "vocab": [
+      {
+        "word": "apprenticeship",
+        "pos": "n.",
+        "meaning_in_context": "学徒期；师徒式的训练机制",
+        "common_meanings": "apprentice 学徒；be apprenticed to 跟……当学徒",
+        "cn_definition": "学徒制；学徒期",
+        "example": "Every profession rests on an unglamorous apprenticeship.",
+        "importance": 4
+      },
+      {
+        "word": "tacit",
+        "pos": "adj.",
+        "meaning_in_context": "（知识）默会的、无法言传的",
+        "common_meanings": "心照不宣的、不言而喻的（tacit agreement）",
+        "cn_definition": "默会的；不言明的",
+        "example": "beginners absorb the tacit knowledge their seniors cannot easily articulate",
+        "importance": 5
+      },
+      {
+        "word": "articulate",
+        "pos": "v.",
+        "meaning_in_context": "清楚地表达、言说",
+        "common_meanings": "adj. 表达清晰的（an articulate speaker）",
+        "cn_definition": "清楚表达；明确说明",
+        "example": "the tacit knowledge their seniors cannot easily articulate",
+        "importance": 5
+      },
+      {
+        "word": "dismantle",
+        "pos": "v.",
+        "meaning_in_context": "（喻）瓦解、逐步废除",
+        "common_meanings": "拆卸（机器）；拆除（建筑）",
+        "cn_definition": "拆除；瓦解",
+        "example": "Artificial intelligence is now dismantling that promise.",
+        "importance": 4
+      },
+      {
+        "word": "knowledge-intensive",
+        "pos": "adj.",
+        "meaning_in_context": "知识密集型的",
+        "common_meanings": "labour-intensive 劳动密集型的；capital-intensive 资本密集型的",
+        "cn_definition": "知识密集的",
+        "example": "Entry-level hiring in several knowledge-intensive industries has fallen sharply since 2023.",
+        "importance": 3
+      },
+      {
+        "word": "hold steady",
+        "pos": "phr.",
+        "meaning_in_context": "保持稳定、没有波动",
+        "common_meanings": "steady adj. 稳定的；hold firm 立场坚定",
+        "cn_definition": "保持稳定",
+        "example": "firms whose overall headcount has held steady",
+        "importance": 4
+      },
+      {
+        "word": "creative destruction",
+        "pos": "phr.",
+        "meaning_in_context": "创造性破坏：旧产业被新技术淘汰、新产业随之产生的经济学概念",
+        "common_meanings": "由经济学家熊彼特提出，外刊讨论技术变革时的标准用语",
+        "cn_definition": "创造性破坏",
+        "example": "Defenders of the technology argue that this is simply creative destruction.",
+        "importance": 5
+      },
+      {
+        "word": "overlook",
+        "pos": "v.",
+        "meaning_in_context": "忽视、没有考虑到",
+        "common_meanings": "俯瞰、眺望；宽恕（过错）",
+        "cn_definition": "忽略；俯瞰",
+        "example": "What that reassuring story overlooks, however, is the sequence.",
+        "importance": 5
+      },
+      {
+        "word": "mechanism",
+        "pos": "n.",
+        "meaning_in_context": "机制、运作方式",
+        "common_meanings": "机械装置；生理机制",
+        "cn_definition": "机制；机理",
+        "example": "there is no obvious mechanism by which the next generation acquires judgement",
+        "importance": 4
+      },
+      {
+        "word": "judgement-intensive",
+        "pos": "adj.",
+        "meaning_in_context": "高度依赖判断力的",
+        "common_meanings": "与 knowledge-intensive 同构的复合形容词",
+        "cn_definition": "判断密集型的",
+        "example": "A handful of consultancies have begun recruiting graduates into judgement-intensive work.",
+        "importance": 3
+      },
+      {
+        "word": "pipeline",
+        "pos": "n.",
+        "meaning_in_context": "（喻）人才培养与输送的通道",
+        "common_meanings": "管道、输油管；（计算机）流水线",
+        "cn_definition": "管道；（喻）输送渠道",
+        "example": "they have quietly consumed the very pipeline that produced their own experts",
+        "importance": 5
+      },
+      {
+        "word": "consume",
+        "pos": "v.",
+        "meaning_in_context": "消耗掉、耗尽",
+        "common_meanings": "消费、吃喝；consumer 消费者",
+        "cn_definition": "消耗；消费",
+        "example": "they have quietly consumed the very pipeline that produced their own experts",
+        "importance": 3
+      }
+    ],
+    "sentences": [
+      {
+        "en": "The work is repetitive and poorly paid, and it has always been justified by a single promise: that in doing it, beginners absorb the tacit knowledge their seniors cannot easily articulate.",
+        "zh": "这类工作重复、报酬低，却一直由一个承诺为其正名：在做的过程中，新手能够吸收前辈难以清楚言说的默会知识。",
+        "skeleton": "The work is repetitive and poorly paid, and it has been justified by a promise: that beginners absorb the knowledge.",
+        "main_clause": "The work is repetitive and poorly paid, and it has always been justified by a single promise",
+        "subject": "The work",
+        "predicate": "is / has been justified",
+        "object": "that in doing it, beginners absorb the tacit knowledge their seniors cannot easily articulate（同位语从句）",
+        "clauses": [
+          "同位语从句：that beginners absorb the tacit knowledge —— 说明 promise 的具体内容",
+          "定语从句（省略关系词）：(that) their seniors cannot easily articulate —— 修饰 the tacit knowledge"
+        ],
+        "modifiers": [
+          "repetitive and poorly paid —— 形容词短语作表语",
+          "by a single promise —— 介词短语表施动者（被动语态的标志）",
+          "in doing it —— 介词短语作时间状语"
+        ],
+        "non_finite": "in doing it —— 动名词结构作状语",
+        "insertion": "",
+        "appositive": "a single promise 与其后的 that 从句构成同位关系",
+        "logic": "让步（is repetitive and poorly paid）+ 转折（and it has always been justified by ...），用「但有一个承诺」平衡负面描述",
+        "why_hard": "冒号后的 that 从句与前面的 the tacit knowledge 之间存在干扰：读者容易把 that 误当成修饰 knowledge 的定语从句。判断依据是 that 后面成分完整，因此它是解释 promise 的同位语从句。同位语从句与定语从句的区分是考研语法的高频考点。"
+      },
+      {
+        "en": "The tasks that once occupied a graduate's first two years — summarising documents, drafting routine correspondence, assembling data, checking facts — are precisely the tasks that large language models perform quickly and cheaply.",
+        "zh": "曾经占据毕业生头两年工作的那些任务——总结文件、撰写例行信函、汇总数据、核对事实——恰恰是大语言模型完成得又快又便宜的任务。",
+        "skeleton": "The tasks are precisely the tasks.",
+        "main_clause": "The tasks ... are precisely the tasks",
+        "subject": "The tasks that once occupied a graduate's first two years",
+        "predicate": "are",
+        "object": "precisely the tasks that large language models perform quickly and cheaply",
+        "clauses": [
+          "定语从句：that once occupied a graduate's first two years —— 修饰主语 The tasks",
+          "定语从句：that large language models perform quickly and cheaply —— 修饰表语 the tasks（关系词 that 在从句中作 perform 的宾语，被省略的可能是 which/that）"
+        ],
+        "modifiers": [
+          "summarising documents, drafting routine correspondence, assembling data, checking facts —— 四个动名词短语构成同位语，具体说明是哪些任务",
+          "into judgement-intensive work / from the outset —— 介词短语作状语"
+        ],
+        "non_finite": "summarising / drafting / assembling / checking —— 四个动名词并列，注意它们都是名词性用法",
+        "insertion": "两个破折号之间的四个动名词短语",
+        "appositive": "破折号内的四个动名词短语是 The tasks 的同位语",
+        "logic": "强调：用 precisely（恰恰）把「人的初级工作」与「模型的廉价劳动」完全对应起来，暗示替代关系的直接性",
+        "why_hard": "全句被一对破折号切成三截，主干只剩 The tasks are the tasks，看起来像废话，但只有把两个定语从句和同位语都剥掉才能看出作者的强调逻辑；同时四个动名词并列容易被误读成谓语动词。"
+      },
+      {
+        "en": "What that reassuring story overlooks, however, is the sequence: the roles that disappear first are the ones that produced experienced workers, and there is no obvious mechanism by which the next generation acquires judgement if nobody hires it to develop that judgement.",
+        "zh": "然而，那套令人安心的叙述所忽视的，是先后顺序：最先消失的岗位，恰恰是培养出有经验员工的那批岗位；如果没有人雇年轻人去锻炼判断力，就不存在明显的机制让他们获得判断力。",
+        "skeleton": "What the story overlooks is the sequence: the roles are the ones, and there is no mechanism.",
+        "main_clause": "What that reassuring story overlooks is the sequence",
+        "subject": "What that reassuring story overlooks（主语从句）",
+        "predicate": "is",
+        "object": "the sequence（其后冒号引出两个并列分句作解释）",
+        "clauses": [
+          "主语从句：What that reassuring story overlooks —— 作整句主语",
+          "定语从句：that disappear first —— 修饰 the roles",
+          "定语从句：that produced experienced workers —— 修饰 the ones",
+          "定语从句：by which the next generation acquires judgement —— 修饰 mechanism（介词 + 关系代词）",
+          "条件状语从句：if nobody hires it to develop that judgement"
+        ],
+        "modifiers": [
+          "however —— 插入语，标记转折",
+          "that reassuring story —— that 在此是形容词，意为「那套」，不是关系词"
+        ],
+        "non_finite": "to develop that judgement —— 不定式作目的状语",
+        "insertion": "however",
+        "appositive": "冒号后的两个并列分句是对 the sequence 的解释",
+        "logic": "转折（however）+ 因果（if ... then 隐含）+ 并列，全段逻辑是「反驳乐观论述 → 指出被忽视的顺序问题 → 推出无法培养新人的后果」",
+        "why_hard": "一句话里连续出现主语从句、三个定语从句和一个条件状语从句，并且 that 出现了四次却有三个不同身份（关系代词、指示形容词、引导从句）。考研阅读中只要 that 密集出现，就必须逐一定性，这是最典型的失分点。"
+      },
+      {
+        "en": "Otherwise, the professions that now congratulate themselves on their efficiency may discover, a decade from now, that they have quietly consumed the very pipeline that produced their own experts.",
+        "zh": "否则，那些如今还在为自己的效率沾沾自喜的行业，十年后可能会发现：它们已经悄悄消耗掉了那条培养出自己的专家的输送通道。",
+        "skeleton": "The professions may discover that they have consumed the pipeline.",
+        "main_clause": "the professions ... may discover ... that they have quietly consumed the very pipeline",
+        "subject": "the professions that now congratulate themselves on their efficiency",
+        "predicate": "may discover",
+        "object": "that they have quietly consumed the very pipeline that produced their own experts（宾语从句）",
+        "clauses": [
+          "定语从句：that now congratulate themselves on their efficiency —— 修饰 the professions",
+          "宾语从句：that they have quietly consumed the very pipeline —— 作 discover 的宾语",
+          "定语从句：that produced their own experts —— 修饰 the pipeline"
+        ],
+        "modifiers": [
+          "Otherwise —— 承上启下的连接副词，意为「否则」",
+          "a decade from now —— 插入的时间状语，把谓语与宾语从句隔开；very 起强调作用"
+        ],
+        "non_finite": "",
+        "insertion": "a decade from now 插在谓语和宾语从句之间",
+        "appositive": "",
+        "logic": "警示：Otherwise 引出反面后果，讽刺那些「为自己的效率自豪」的行业其实正在自毁根基",
+        "why_hard": "谓语 may discover 与宾语从句 that ... 之间被时间状语隔开，形成主谓宾分离；句末 that produced their own experts 又容易与前面的 that 从句混淆层次。very 在此不是「非常」，而是形容词「正是那个」，这类熟词僻义是考研阅读的常见陷阱。"
+      }
+    ],
+    "grammar": [
+      {
+        "name": "同位语从句 vs 定语从句（that 的两种身份）",
+        "category": "句法",
+        "explanation": "判断标准只有一条：看 that 后面的成分是否完整。完整 → 同位语从句，that 只起连接作用，用于解释前面抽象名词（promise, fact, idea, possibility）的内容；不完整（缺主语/宾语）→ 定语从句，that 充当句子成分。本文 a single promise: that in doing it, beginners absorb ... 属于前者。",
+        "pattern": "抽象名词 + that + 完整句（同位语从句）／抽象名词 + that + 不完整句（定语从句）",
+        "examples": [
+          "it has always been justified by a single promise: that in doing it, beginners absorb the tacit knowledge their seniors cannot easily articulate",
+          "The uncomfortable possibility is that the problem will not correct itself through market adjustment alone."
+        ]
+      },
+      {
+        "name": "介词 + 关系代词 by which",
+        "category": "句法",
+        "explanation": "当定语从句需要表达「通过某种方式/机制」时，把介词提到关系代词之前，形成 by which / in which / for which / to which。判断时先还原成自然语序：the mechanism by which the next generation acquires judgement = the next generation acquires judgement by the mechanism。",
+        "pattern": "名词 + 介词 + which + 完整句",
+        "examples": [
+          "there is no obvious mechanism by which the next generation acquires judgement"
+        ]
+      },
+      {
+        "name": "主谓（宾）分离：插入语与破折号",
+        "category": "句法",
+        "explanation": "英文长句常把同位语、时间状语、补充说明插在主语和谓语之间，或谓语和宾语之间，造成「看得见词但找不到主干」。处理顺序：先找谓语 → 再往前找主语 → 把中间成对出现的成分整体括起来 → 最后处理从句。",
+        "pattern": "主语 + （插入成分） + 谓语 + （插入成分） + 宾语",
+        "examples": [
+          "The tasks that once occupied a graduate's first two years — summarising documents, drafting routine correspondence, assembling data, checking facts — are precisely the tasks that large language models perform quickly and cheaply.",
+          "the professions ... may discover, a decade from now, that they have quietly consumed the very pipeline"
+        ]
+      },
+      {
+        "name": "现在分词与过去分词作状语／定语的区别",
+        "category": "词法",
+        "explanation": "主动关系用现在分词（treating machine output as ...，逻辑主语是 firms），被动关系用过去分词（something to be verified rather than trusted，被核实、被信任）。判断依据是把分词结构的逻辑主语还原出来，看是主动还是被动。",
+        "pattern": "doing（主动、进行）／done（被动、完成）",
+        "examples": [
+          "Others have rebuilt apprenticeship schemes around supervision, treating machine output as something to be verified rather than trusted."
+        ]
+      }
+    ],
+    "logic": {
+      "overall": "文章讨论 AI 取代初级岗位带来的隐性风险：最先被替代的正是培养新人的那些岗位，如果这一「第一级阶梯」消失，未来将没有人成长为专家；因此需要企业、大学与政府主动搭建替代机制，而不能指望市场自行调节。",
+      "structure": [
+        {"para": 1, "role": "提出前提", "main_idea": "各行业依靠学徒式初级岗位输送默会知识"},
+        {"para": 2, "role": "呈现现象与数据", "main_idea": "AI 接管了初级任务，知识密集型行业入门岗位招聘大幅下降"},
+        {"para": 3, "role": "反驳乐观观点并给出核心论点", "main_idea": "「创造性破坏」的安慰忽略了先后顺序：先消失的是培养人的岗位，且没有替代机制"},
+        {"para": 4, "role": "举例说明已有尝试", "main_idea": "少数公司用判断密集型岗位或加强监督重建学徒制，但成本高、依赖雇主投入"},
+        {"para": 5, "role": "收束与警示", "main_idea": "市场无法自行纠正，必须由企业、大学或政府主动造出替代品，否则行业会消耗掉自己的人才通道"}
+      ],
+      "author_attitude": "作者态度是担忧并带有警示意味（concerned, mildly critical）：对「技术会自动创造新岗位」的乐观论述持保留态度，用 What that reassuring story overlooks 直接质疑，并在结尾以 The uncomfortable possibility 和 Otherwise 强化风险。注意作者并非反对技术本身，而是反对把市场调节当作自动解决方案。",
+      "reading_tips": [
+        "本文是典型的「论点—反论点—作者立场」结构，第三段的 What that reassuring story overlooks 是全篇转折点，之前是在陈述观点，之后才是作者自己的判断。",
+        "遇到大量数据（since 2023、fallen sharply）时要注意：数据是支撑现象的证据，作者的真正论点通常在数据之前或之后的评价句里。",
+        "结尾段的 Otherwise 是重要信号，标志从「分析」转向「后果／呼吁」，主旨题与态度题的答案往往落在这一段。",
+        "文中多处使用经济学专门用语（creative destruction、pipeline、knowledge-intensive），考研阅读遇到学科术语时不必纠结定义，抓住作者对它的评价即可。"
+      ]
+    }
+  },
+  "writing": {
+    "items": [
+      {
+        "kind": "phrase",
+        "content": "rest on",
+        "cn": "建立在……之上；依赖于",
+        "example": "Every profession rests on an unglamorous apprenticeship.",
+        "usage_note": "写「基础/前提」类句子很好用，比 depend on 更书面。例如 A stable society rests on mutual trust."
+      },
+      {
+        "kind": "phrase",
+        "content": "be justified by",
+        "cn": "由……为其提供正当理由；因……而变得合理",
+        "example": "it has always been justified by a single promise",
+        "usage_note": "被动语态，适合讨论「某种做法为什么长期存在」。反义表达是 be criticised for。"
+      },
+      {
+        "kind": "phrase",
+        "content": "under pressure to do sth",
+        "cn": "面临做某事的压力",
+        "example": "Employers, under pressure to cut costs, have noticed.",
+        "usage_note": "作插入语或后置定语都自然，用来交代行为主体的处境，比 because they are pressured 更简洁。"
+      },
+      {
+        "kind": "pattern",
+        "content": "What ... overlooks, however, is ...",
+        "cn": "然而，……所忽视的是……",
+        "example": "What that reassuring story overlooks, however, is the sequence.",
+        "usage_note": "议论文「反驳对方观点」的黄金句型，用于第二段或第三段转折。可替换为 What such arguments fail to notice, however, is ..."
+      },
+      {
+        "kind": "pattern",
+        "content": "The uncomfortable possibility is that ...",
+        "cn": "令人不安的一种可能是……",
+        "example": "The uncomfortable possibility is that the problem will not correct itself through market adjustment alone.",
+        "usage_note": "提出问题或警示时使用，语气克制但立场明确。类似句型：The worrying implication is that ... / The real danger is not that ..., but that ..."
+      }
+    ],
+    "imitation": {
+      "prompt_cn": "请把下面这句话翻译成英文，尽量用上今天积累的表达（提示：可以用 What ... fails to notice 和 the uncomfortable possibility）：\n\n真正令人不安的，并不是新技术会取代某些岗位，而是它可能切断培养下一代专家的通道。",
+      "prompt_en": "What is truly unsettling is not that new technology will replace certain jobs, but that it may cut off the pipeline that trains the next generation of experts.",
+      "hint": "1) 「真正令人不安的」可用 What is truly unsettling / What is really worrying；2) 后半句用 not ... but ... 保持结构平行；3) 「通道」可以直接用今天学到的 pipeline；4) 「切断」可考虑 cut off / sever / break。",
+      "reference_answer": "What is truly unsettling is not that new technology will replace certain jobs, but that it may cut off the very pipeline that trains the next generation of experts."
+    }
+  }
+}

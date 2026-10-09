@@ -1,0 +1,13 @@
+[Unit]
+Description=每天凌晨自动备份（保留 14 天）
+
+[Timer]
+# 放在凌晨 4 点：比每日 6 点生成内容早，
+# 既能备到"昨天学完"的状态，又不会和 AI 生成抢资源。
+OnCalendar=*-*-* 04:00:00
+# 服务器如果凌晨关机了，开机后补跑一次
+Persistent=true
+Unit=kaoyan-backup.service
+
+[Install]
+WantedBy=timers.target

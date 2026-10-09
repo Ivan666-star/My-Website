@@ -1,0 +1,35 @@
+# =============================================================================
+#  Caddy 配置：自动申请 + 自动续期 HTTPS 证书，不用每年操心
+#
+#  用法：
+#    1) 把 kaoyan.example.com 换成你的域名
+#    2) 复制到 /etc/caddy/Caddyfile
+#    3) systemctl reload caddy
+#
+#  前提：
+#    - 域名的 A 记录已经解析到这台服务器的公网 IP
+#    - 安全组 / 防火墙放行了 80 和 443（申请证书要用 80 端口做验证）
+#
+#  说明：Caddy 会自动把 http 跳转到 https，并自动带上 X-Forwarded-Proto，
+#        应用据此判断"我在 HTTPS 后面"，从而给登录凭据加上 Secure 标记。
+# =============================================================================
+
+# 申请证书时留给服务商的联系邮箱（可选，填了会收到证书到期提醒）
+{
+	email you@example.com
+}
+
+kaoyan.example.com {
+	encode gzip
+
+	# 只转发给本机应用，应用自身不对公网开放
+	reverse_proxy 127.0.0.1:8848
+
+	# 日志（出问题时看这个）
+	log {
+		output file /var/log/caddy/kaoyan.log {
+			roll_size 10mb
+			roll_keep 5
+		}
+	}
+}

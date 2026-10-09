@@ -1,0 +1,13 @@
+{
+  "name": "Prism",
+  "short_name": "Prism",
+  "description": "考研英语一长期训练系统：每日阅读、词汇、长难句、语法、写作表达与仿写批改",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f3ef",
+  "theme_color": "#f5f3ef",
+  "icons": [
+    { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
