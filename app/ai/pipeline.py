@@ -155,6 +155,27 @@ def _ensure_exam_length(provider, art: dict, body: str, diff: int, topic: str) -
     return body
 
 
+def _generate_json(provider, stage: str, system: str, user: str, *,
+                   strong: bool = False, temperature: float, max_tokens: int) -> dict:
+    """模型偶发输出无效 JSON 时，只重试当前生成阶段一次。"""
+    for attempt in range(2):
+        raw = provider.chat(
+            system,
+            user if attempt == 0 else user + "\n\n上一次输出格式有误。请重新完整输出一个合法 JSON 对象，注意引号、转义和闭合括号，不要附加说明。",
+            strong=strong,
+            temperature=temperature if attempt == 0 else min(temperature, 0.3),
+            max_tokens=max_tokens if attempt == 0 else min(max_tokens * 2, 32000),
+        )
+        try:
+            result = parse_json(raw)
+            if not isinstance(result, dict):
+                raise AIError("模型返回的不是 JSON 对象")
+            return result
+        except AIError as exc:
+            print(f"[pipeline] {stage} JSON 解析失败（第 {attempt + 1} 次，长度 {len(raw)}）：{exc}")
+    raise AIError(f"{stage}的模型输出格式连续两次不正确，请稍后重试")
+
+
 def generate_daily(
     date_str: str | None = None,
     *,
@@ -177,7 +198,8 @@ def generate_daily(
     recent_titles = [r["title"] for r in db.recent_articles(8)]
 
     # --- 1) 文章主体 ---
-    art_raw = provider.chat(
+    art = _generate_json(
+        provider, "文章生成",
         prompts.ARTICLE_SYSTEM,
         prompts.build_article_prompt(
             tp, diff, directives=dirs, recent_titles=recent_titles,
@@ -186,28 +208,27 @@ def generate_daily(
         temperature=0.85,
         max_tokens=4000,
     )
-    art = parse_json(art_raw)
     body = (art.get("body") or "").strip()
     body = _ensure_exam_length(provider, art, body, diff, tp)
 
     # --- 2) 精读解析 ---
-    ana_raw = provider.chat(
+    ana = _generate_json(
+        provider, "精读解析",
         prompts.ANALYSIS_SYSTEM,
         prompts.build_analysis_prompt(art.get("title", ""), body, db.weak_words(12)),
         strong=True,
         temperature=0.4,
         max_tokens=12000,
     )
-    ana = parse_json(ana_raw)
 
     # --- 3) 写作任务 ---
-    wr_raw = provider.chat(
+    wr = _generate_json(
+        provider, "写作任务",
         prompts.WRITING_SYSTEM,
         prompts.build_writing_prompt(art.get("title", ""), body),
         temperature=0.7,
         max_tokens=4000,
     )
-    wr = parse_json(wr_raw)
 
     pkg = {
         "article": art,

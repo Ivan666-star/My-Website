@@ -2115,12 +2115,12 @@ $("#btnSubjects").addEventListener("click", () => navigate("subjects"));
 
 const SUBJECTS = [
   {
-    key: "en", icon: "📖", name: "英语一", tag: "每日精读",
+    key: "en", icon: "📖", name: "英语", tag: "每日精读",
     desc: "真题命题视角 · 词汇长难句 · 写作仿写",
     stat: "",
   },
   {
-    key: "math", icon: "🧮", name: "数学一", tag: "错题本",
+    key: "math", icon: "🧮", name: "数学", tag: "错题本",
     desc: "拍照录题 · AI 归类解析 · 3/7/14/30 天复习",
     stat: "",
   },
@@ -2449,7 +2449,7 @@ function setMathLibBadge(n) {
   b.hidden = v <= 0;
   const btn = $("#btnMathLib");
   if (btn) btn.title = v > 0
-    ? `错题总库：今天有 ${v} 道该复习（${MATH.module === "sig" ? "信号与系统" : "数学一"}）`
+    ? `错题总库：今天有 ${v} 道该复习（${MATH.module === "sig" ? "信号与系统" : "数学"}）`
     : "错题总库：每道错题 + 它对应的知识点";
 }
 
@@ -2501,7 +2501,7 @@ function renderMath() {
   if (mt) {
     mt.textContent = MATH.f.subject
       ? `${MATH.f.subject} · 错题库`
-      : (MATH.module === "sig" ? "信号与系统错题库" : "数学一错题库");
+      : (MATH.module === "sig" ? "信号与系统错题库" : "数学错题库");
   }
   /* stats 已经是**按模块过滤后**的（后端 stats(module)），总量/到期/已掌握天然只算本模块 */
   const st = (MATH.meta && MATH.meta.stats) || {};

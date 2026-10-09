@@ -98,6 +98,14 @@ class OpenAICompatProvider(AIProvider):
                 choice = (data.get("choices") or [{}])[0]
                 msg = choice.get("message") or {}
                 content = (msg.get("content") or "").strip()
+                if choice.get("finish_reason") == "length":
+                    if attempt < retries:
+                        max_tokens = min(max(int(max_tokens), 1) * 2, 32000)
+                        payload["max_tokens"] = max_tokens
+                        last_err = AIError("模型输出达到长度限制，正在增加额度重试")
+                        time.sleep(1)
+                        continue
+                    raise AIError("模型输出达到长度限制，内容不完整，请稍后重试")
                 # 推理模型（DeepSeek V4 系 flash / v4-pro）会先产出 reasoning_content，
                 # 如果 max_tokens 太小，思考过程会把额度吃光 → content 为空串。
                 # 这种情况下调用方会静默走兜底逻辑（分类退化成规则匹配），非常难查，

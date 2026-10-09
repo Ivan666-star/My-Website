@@ -219,7 +219,7 @@ function stubExtract(w){
     await until(() => d.querySelector(".subject-card"));
     await raf(4);
     note("subject_cards", d.querySelectorAll(".subject-card").length);
-    note("subject_names", Array.from(d.querySelectorAll(".subject-name")).map(x => x.textContent.trim()).join("|"));
+    note("subject_names", Array.from(d.querySelectorAll(".subject-name")).map(x => x.firstChild.textContent.trim()).join("|"));
 
     /* ---- 主界面顶栏（用户 2026-10-07 要求）----
        只留 账号标志 / 批注 / 设置；连续天数与复习/素材库/数据/历史/选科目 全部收起。
@@ -821,13 +821,11 @@ try:
               (_sw or 0) <= (_cw or 0) + 1, f"(scroll {_sw} / client {_cw})")
         if (_sw or 0) > (_cw or 0) + 1:
             print(f"    · [{tag}] 肇事元素（全量扫描）：{n.get('overflow_all')!r}")
-        # 2026-10-08 起主界面有 3 个科目入口：英语一 / 数学一 / 信号与系统
+        # 主界面有 3 个科目入口：英语 / 数学 / 信号与系统
         check(f"[{tag}] 主界面有三个科目入口", n.get("subject_cards") == 3,
               f"({n.get('subject_cards')})")
-        check(f"[{tag}] 科目名是 英语一 / 数学一 / 信号与系统",
-              "英语一" in (n.get("subject_names") or "")
-              and "数学一" in (n.get("subject_names") or "")
-              and "信号与系统" in (n.get("subject_names") or ""),
+        check(f"[{tag}] 科目名是 英语 / 数学 / 信号与系统",
+              (n.get("subject_names") or "").split("|") == ["英语", "数学", "信号与系统"],
               f"({n.get('subject_names')})")
 
         # ---- 主界面顶栏：只留 账号标志 / 批注 / 设置（用户 2026-10-07 要求）----
@@ -882,7 +880,7 @@ try:
             check("[科目] 关掉设置弹层（renderTarget 交还页面）",
                   n.get("exam_sheet_closed") == 1)
         else:
-            check(f"[{tag}] 从主界面点「数学一」能进数学页", n.get("entered_math") == 1)
+            check(f"[{tag}] 从主界面点「数学」能进数学页", n.get("entered_math") == 1)
             check(f"[{tag}] 卡片数 = 5", n.get("cards") == 5, f"({n.get('cards')})")
             check(f"[{tag}] 数学页能靠品牌标记回主界面", n.get("brand_home") == 1)
             # ⭐ 数学页顶栏必须干净：那些入口（连续/复习/选科目/素材库/数据/历史）
