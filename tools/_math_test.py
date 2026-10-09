@@ -245,8 +245,8 @@ with db.as_user(UID_A):
     check("has_image 为真", pimg["has_image"] is True)
     f = M.image_file(pimg["image_path"])
     check("能按 image_path 读回文件", bool(f and f.is_file()))
-    check("落盘目录是 math_images/<uid>/",
-          pimg["image_path"].startswith(f"math_images/{UID_A}/"))
+    check("图片保存在用户自己的数据目录下",
+          pimg["image_path"].startswith(f"users/{UID_A}_user{UID_A}/math_images/"))
     check("路径里没有双反斜杠 / 双斜杠",
           "//" not in pimg["image_path"] and "\\\\" not in pimg["image_path"])
     check("目录穿越被拒", M.image_file("../../etc/passwd") is None)

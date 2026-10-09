@@ -31,9 +31,8 @@ from .config import settings
 
 router = APIRouter(prefix="/api/math", tags=["math"])
 
-# 原题照片落盘位置：data/math_images/<user_id>/<uuid>.<ext>
-# 数据库里 math_problems.image_path 存的是**相对 data/ 的路径**，
-# 这样换机器 / 换 DB_PATH 时不会带着绝对路径一起坏掉。
+# 未认领数据沿用 data/math_images/<user_id>/；账号数据存入各自的 users/<id>_<用户名> 目录。
+# 数据库保存相对 data/ 的路径，移动项目时不依赖绝对路径。
 MATH_IMG_DIR = settings.db_path.parent / "math_images"
 _IMG_EXT = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp"}
 _IMG_MAX_BYTES = 12 * 1024 * 1024
@@ -224,20 +223,28 @@ def save_image(data_url: str, uid: int) -> str:
         return ""
     if not blob or len(blob) > _IMG_MAX_BYTES:
         return ""
-    d = MATH_IMG_DIR / str(int(uid))
-    d.mkdir(parents=True, exist_ok=True)
     name = f"{uuid.uuid4().hex}{ext}"
+    if int(uid) > db.UNCLAIMED:
+        d = db.user_data_dir(int(uid)) / "math_images"
+        relative = db.user_data_dir(int(uid)).relative_to(settings.db_path.parent).as_posix()
+        stored_path = f"{relative}/math_images/{name}"
+    else:
+        d = MATH_IMG_DIR / str(int(uid))
+        stored_path = f"math_images/{int(uid)}/{name}"
+    d.mkdir(parents=True, exist_ok=True)
     (d / name).write_bytes(blob)
-    return f"math_images/{int(uid)}/{name}"
-
-
+    return stored_path
 def image_file(rel: str) -> Path | None:
-    """把 image_path 解析成本地文件；不在 math_images 里或文件不存在都返回 None。"""
+    """把图片路径限制在当前用户的图片目录内，避免越权读取或目录穿越。"""
     if not rel:
         return None
-    root = MATH_IMG_DIR.resolve()
+    uid = db.current_user_id(required=False)
+    if uid is not None and uid > db.UNCLAIMED:
+        root = (db.user_data_dir(uid) / "math_images").resolve()
+    else:
+        root = MATH_IMG_DIR.resolve()
     p = (settings.db_path.parent / rel).resolve()
-    if root not in p.parents:      # 防目录穿越：rel 来自数据库，也不能无条件信
+    if root not in p.parents:
         return None
     return p if p.is_file() else None
 

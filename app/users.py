@@ -103,12 +103,17 @@ def has_users() -> bool:
 def list_users() -> list[dict]:
     """给管理页用的列表（不含任何口令字段）。"""
     rows = db.query(
-        """SELECT u.id, u.username, u.display_name, u.is_admin, u.active, u.approved,
-                  u.created_at, u.last_login_at,
-                  (SELECT COUNT(*) FROM articles a WHERE a.user_id=u.id) AS article_count,
-                  (SELECT COUNT(*) FROM favorites f WHERE f.user_id=u.id) AS favorite_count
-           FROM users u ORDER BY u.is_admin DESC, u.id ASC"""
+        """SELECT id, username, display_name, is_admin, active, approved,
+                  created_at, last_login_at
+           FROM users ORDER BY is_admin DESC, id ASC"""
     )
+    for row in rows:
+        with db.as_user(int(row["id"])):
+            stats = db.query_one(
+                "SELECT (SELECT COUNT(*) FROM articles) article_count, "
+                "(SELECT COUNT(*) FROM favorites) favorite_count"
+            )
+        row.update(stats or {"article_count": 0, "favorite_count": 0})
     return rows
 
 
@@ -264,7 +269,7 @@ def revoke_session(token: str) -> None:
 
 
 def revoke_user_sessions(user_id: int) -> int:
-    with db.connect() as conn:
+    with db.connect(central=True) as conn:
         cur = conn.execute("DELETE FROM sessions WHERE user_id=?", (int(user_id),))
         return int(cur.rowcount or 0)
 
@@ -287,14 +292,7 @@ def claim_orphan_data(user_id: int) -> dict:
     """
     if int(user_id) == db.UNCLAIMED:
         raise ValueError("0 号桶是未认领数据的保留归属，不能把数据划给它自己")
-    out: dict[str, int] = {}
-    with db.connect() as conn:
-        for table in ("articles", "study_log", "favorites", "events"):
-            cur = conn.execute(
-                f"UPDATE {table} SET user_id=? WHERE user_id=?", (int(user_id), db.UNCLAIMED)
-            )
-            out[table] = int(cur.rowcount or 0)
-    return out
+    return db.claim_unclaimed_data(int(user_id))
 
 
 def orphan_counts() -> dict:

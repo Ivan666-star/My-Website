@@ -62,6 +62,9 @@ WEB_DIR = BASE_DIR / "web"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    migrated = db.migrate_legacy_user_data()
+    if migrated:
+        print(f"[startup] 已拆分并校验 {len(migrated)} 个账号的历史学习数据")
     # 还没有账号时，准备好「创建第一个账号」要用的初始化码
     if not users.has_users():
         auth.ensure_setup_code()
@@ -908,7 +911,14 @@ def api_set_settings(request: Request, payload: dict = Body(...)):
 def api_health():
     """探活用，不含隐私。部署脚本会打这个接口，所以必须免登录。"""
     with db.as_system():
-        has_today = bool(db.get_article_by_date(db.today_str()))
+        ids = [int(row["id"]) for row in db.query(
+            "SELECT id FROM users WHERE active=1 AND approved=1 ORDER BY id"
+        )]
+        local_today = bool(db.get_article_by_date(db.today_str()))
+    has_today = local_today
+    for uid in ids:
+        with db.as_user(uid):
+            has_today = has_today or bool(db.get_article_by_date(db.today_str()))
     return {
         "ok": True,
         "today": db.today_str(),

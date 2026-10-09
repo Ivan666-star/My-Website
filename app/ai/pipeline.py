@@ -898,9 +898,15 @@ def rule_fill_blank_genres() -> int:
     已经标好 genre 的记录不会被覆盖。
     """
     filled = 0
-    # 这是启动时的全库回填，不属于任何请求 → 显式声明全库上下文
+    # 启动回填需要逐个打开独立数据库，不能把所有账号当成同一个库。
     with db.as_system():
-        return _fill_blank_genres_inner()
+        user_ids = [int(row["id"]) for row in db.query("SELECT id FROM users")]
+    with db.as_local():
+        filled = _fill_blank_genres_inner()
+    for uid in user_ids:
+        with db.as_user(uid):
+            filled += _fill_blank_genres_inner()
+    return filled
 
 
 def _fill_blank_genres_inner() -> int:

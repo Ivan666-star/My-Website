@@ -197,11 +197,29 @@ class Server:
         con.row_factory = sqlite3.Row
         return con
 
+    def learning_db(self, uid: int):
+        with self.db() as con:
+            row = con.execute("SELECT username FROM users WHERE id=?", (uid,)).fetchone()
+        username = re.sub(r"[^A-Za-z0-9_.-]+", "_", row["username"]).strip("._-")
+        path = self.tmp / "users" / f"{uid}_{username or f'user{uid}'}" / "learning.db"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        con = sqlite3.connect(str(path), timeout=30)
+        con.row_factory = sqlite3.Row
+        return con
+
+    def bump_learning_ids(self, uid: int, start: int = 1000):
+        con = self.learning_db(uid)
+        with con:
+            for table in ("articles", "favorites", "vocab"):
+                con.execute("DELETE FROM sqlite_sequence WHERE name=?", (table,))
+                con.execute("INSERT INTO sqlite_sequence(name,seq) VALUES(?,?)", (table, start))
+        con.close()
+
 
 def seed_row(srv: Server, uid: int, day: str, *, title: str, fav: str,
              article_kind: str = "ai") -> tuple[int, int, int]:
     """直接往库里塞一条「属于 uid 的」文章 + 一个词 + 一条素材，返回三个 id。"""
-    con = srv.db()
+    con = srv.learning_db(uid)
     with con:
         cur = con.execute(
             "INSERT INTO articles(user_id,date,title,body,difficulty,word_count,"
@@ -338,21 +356,30 @@ def main() -> int:
         con.close()
         check("库里两个账号", ivan_id != bob_id)
 
+        bob = Client(srv.base)
+        st, _, _ = bob.form_login(username="bob", password="bob12345")
+        check("bob 登录成功", st == 303, f"status={st}")
+        st, _ = bob.jget("/api/bootstrap")
+        check("bob 的个人学习库已初始化", st == 200, f"status={st}")
+
         ivan_art, ivan_vocab, ivan_fav = seed_row(
             srv, ivan_id, "2099-05-05", title="Ivan 的文章", fav="ivan-only-phrase")
+        srv.bump_learning_ids(bob_id)
         bob_art, bob_vocab, bob_fav = seed_row(
             srv, bob_id, "2099-05-05", title="Bob 的文章", fav="bob-only-phrase")
         check("同一天两个账号各存一篇（UNIQUE(user_id,date) 生效）",
               ivan_art != bob_art)
 
         con = srv.db()
-        nulls = con.execute("SELECT COUNT(*) c FROM articles WHERE user_id IS NULL").fetchone()["c"]
+        central_articles = con.execute("SELECT COUNT(*) c FROM articles").fetchone()["c"]
         con.close()
-        check("没有归属不明的文章", nulls == 0, f"NULL={nulls}")
-
-        bob = Client(srv.base)
-        st, _, _ = bob.form_login(username="bob", password="bob12345")
-        check("bob 登录成功", st == 303, f"status={st}")
+        check("学习文章不再写入中心账号库", central_articles == 0,
+              f"中心库文章数={central_articles}")
+        for uid in (ivan_id, bob_id):
+            con = srv.learning_db(uid)
+            nulls = con.execute("SELECT COUNT(*) c FROM articles WHERE user_id IS NULL").fetchone()["c"]
+            con.close()
+            check(f"用户 {uid} 的文章都有明确归属", nulls == 0, f"NULL={nulls}")
 
         st, j = anon.jget("/api/favorites")
         ivan_contents = {i["content"] for i in j.get("items", [])}
@@ -374,7 +401,8 @@ def main() -> int:
         ivan_arts = j.get("articles")
         st, j = bob.jget("/api/stats")
         bob_arts = j.get("articles")
-        check("两人的统计互不影响", ivan_arts != bob_arts or True)
+        check("两人的文章统计来自各自学习库", ivan_arts >= 1 and bob_arts == 1,
+              f"ivan={ivan_arts}, bob={bob_arts}")
         check("bob 的统计里没有 ivan 的连续天数", j.get("streak") in (0, None)
               or j.get("streak") <= 1, f"bob streak={j.get('streak')}")
 
@@ -384,7 +412,7 @@ def main() -> int:
         check("改别人的素材 → 404", st == 404, f"status={st}")
         st, _, _ = bob.delete(f"/api/favorites/{ivan_fav}")
         check("删别人的素材 → 404", st == 404, f"status={st}")
-        con = srv.db()
+        con = srv.learning_db(ivan_id)
         still = con.execute("SELECT COUNT(*) c FROM favorites WHERE id=?", (ivan_fav,)).fetchone()["c"]
         con.close()
         check("ivan 的素材一条没少", still == 1)

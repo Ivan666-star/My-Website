@@ -26,7 +26,16 @@ def ensure_seed(force: bool = False) -> int:
         return 0
     with db.as_system():
         has = db.query_one("SELECT COUNT(*) AS c FROM articles")
-    if has and has["c"] and not force:
+        user_ids = [int(row["id"]) for row in db.query("SELECT id FROM users")]
+    has_any = bool(has and has["c"])
+    if not has_any:
+        for uid in user_ids:
+            with db.as_user(uid):
+                count = db.query_one("SELECT COUNT(*) AS c FROM articles")
+            if count and count["c"]:
+                has_any = True
+                break
+    if has_any and not force:
         return 0
 
     files = sorted(SEEDS_DIR.glob("*.json"))

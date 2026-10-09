@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import sqlite3
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -55,6 +56,8 @@ def as_user(user_id: int):
     """把当前上下文切成某个具体用户。调度器、脚本、认领老数据时用。"""
     tok = _ctx.set(int(user_id))
     try:
+        if int(user_id) > UNCLAIMED:
+            ensure_user_db(int(user_id))
         yield int(user_id)
     finally:
         _ctx.reset(tok)
@@ -556,11 +559,44 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute(f"UPDATE {_t} SET user_id=? WHERE user_id IS NULL", (UNCLAIMED,))
 
 
-def connect() -> sqlite3.Connection:
-    settings.db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(settings.db_path, timeout=30)
+_CENTRAL_TABLES = {"users", "sessions", "profile"}
+_TABLE_REF_RE = re.compile(
+    r"\b(?:(?:FROM|JOIN|INTO|TABLE)\s+|UPDATE\s+(?!SET\b))"
+    r"[`\"]?([A-Za-z_][A-Za-z0-9_]*)",
+    re.I,
+)
+
+
+def user_data_dir(user_id: int) -> Path:
+    """返回该账号的数据目录；目录名不使用显示名，避免路径注入。"""
+    with connect(central=True) as conn:
+        row = conn.execute("SELECT username FROM users WHERE id=?", (int(user_id),)).fetchone()
+    username = str(row["username"] if row else f"user{int(user_id)}")
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "_", username).strip("._-") or f"user{int(user_id)}"
+    return settings.db_path.parent / "users" / f"{int(user_id)}_{safe}"
+
+
+def _sql_uses_central_tables(sql: str) -> bool:
+    """账号表只存在于中心库；学习表只存在于当前用户库。"""
+    refs = {name.lower() for name in _TABLE_REF_RE.findall(sql)}
+    if refs & _CENTRAL_TABLES and refs - _CENTRAL_TABLES:
+        raise ValueError("SQL 不能跨中心账号库和个人学习库查询")
+    return bool(refs & _CENTRAL_TABLES)
+
+
+def connect(*, central: bool | None = None) -> sqlite3.Connection:
+    uid = current_user_id(required=False)
+    if central is None:
+        central = uid in (None, ALL_USERS, UNCLAIMED)
+    path = settings.db_path if central else user_data_dir(int(uid)) / "learning.db"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not path.exists()
+    conn = sqlite3.connect(path, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys=ON")
+    if is_new and not central:
+        conn.executescript(SCHEMA)
+        _migrate(conn)
     return conn
 
 
@@ -570,11 +606,248 @@ def init_db() -> None:
         _migrate(conn)
 
 
+_USER_OWNED_TABLES = (
+    "articles", "study_log", "events", "favorites", "annotations",
+    "user_profile", "math_problems", "math_review_log",
+)
+_ARTICLE_CHILD_TABLES = ("vocab", "sentences", "grammar", "writing_items", "imitation_tasks")
+_initialized_user_dbs: dict[int, Path] = {}
+
+
+def ensure_user_db(user_id: int) -> Path:
+    """确保个人学习库存在且已升级到当前表结构。"""
+    path = user_data_dir(user_id) / "learning.db"
+    if _initialized_user_dbs.get(int(user_id)) == path and path.exists():
+        return path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(path, timeout=30) as conn:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript(SCHEMA)
+        _migrate(conn)
+    _initialized_user_dbs[int(user_id)] = path
+    return path
+
+
+def claim_unclaimed_data(user_id: int) -> dict[str, int]:
+    """将中心库的 0 号桶搬进首个账号的个人库，校验后才清理原记录。"""
+    uid = int(user_id)
+    ensure_user_db(uid)
+    with connect(central=True) as source:
+        old_images = settings.db_path.parent / "math_images" / str(UNCLAIMED)
+        has_data = any(source.execute(f"SELECT 1 FROM {table} WHERE user_id=? LIMIT 1", (UNCLAIMED,)).fetchone()
+                       for table in _USER_OWNED_TABLES)
+        has_data = has_data or bool(source.execute(
+            "SELECT 1 FROM articles WHERE user_id=? LIMIT 1", (UNCLAIMED,)
+        ).fetchone())
+        if has_data or (old_images.exists() and any(old_images.iterdir())):
+            backup_dir = _backup_central("pre_claim")
+            if old_images.exists():
+                shutil.copytree(old_images, backup_dir / "math_images_0")
+        target_path = user_data_dir(uid) / "learning.db"
+        with sqlite3.connect(target_path, timeout=30) as target:
+            target.row_factory = sqlite3.Row
+            target.executescript(SCHEMA)
+            _migrate(target)
+            counts = _copy_user_data(source, target, UNCLAIMED, uid)
+            if old_images.exists():
+                image_dir = user_data_dir(uid) / "math_images"
+                image_dir.mkdir(parents=True, exist_ok=True)
+                _copy_images_verified(old_images, image_dir)
+                for row in target.execute("SELECT id,image_path FROM math_problems WHERE user_id=?", (uid,)):
+                    prefix = f"math_images/{UNCLAIMED}/"
+                    if (row["image_path"] or "").startswith(prefix):
+                        target.execute(
+                            "UPDATE math_problems SET image_path=? WHERE id=?",
+                            (_user_image_rel(uid, row["image_path"][len(prefix):]), row["id"]),
+                        )
+        with source:
+            source.execute("DELETE FROM submissions WHERE task_id IN (SELECT id FROM imitation_tasks WHERE article_id IN (SELECT id FROM articles WHERE user_id=0))")
+            for table in (*_ARTICLE_CHILD_TABLES, *_USER_OWNED_TABLES):
+                if table in _ARTICLE_CHILD_TABLES:
+                    source.execute(f"DELETE FROM {table} WHERE article_id IN (SELECT id FROM articles WHERE user_id=0)")
+                elif table == "submissions":
+                    continue
+                else:
+                    source.execute(f"DELETE FROM {table} WHERE user_id=0")
+    return counts
+
+
+def _user_image_rel(user_id: int, filename: str) -> str:
+    rel_dir = user_data_dir(user_id).relative_to(settings.db_path.parent).as_posix()
+    return f"{rel_dir}/math_images/{filename}"
+
+
+def _backup_central(prefix: str) -> Path:
+    backup_dir = settings.db_path.parent / "backups" / f"{prefix}_{datetime.now():%Y%m%d_%H%M%S_%f}"
+    backup_dir.mkdir(parents=True, exist_ok=False)
+    with connect(central=True) as source:
+        with sqlite3.connect(backup_dir / settings.db_path.name) as backup:
+            source.backup(backup)
+            result = backup.execute("PRAGMA integrity_check").fetchone()[0]
+            if result != "ok":
+                raise RuntimeError(f"SQLite 备份校验失败：{result}")
+    return backup_dir
+
+
+def _copy_images_verified(source_dir: Path, target_dir: Path) -> int:
+    """复制图片并逐个核对字节；出错时让调用方中止数据库清理。"""
+    copied = 0
+    for source in source_dir.rglob("*"):
+        if not source.is_file():
+            continue
+        relative = source.relative_to(source_dir)
+        target = target_dir / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, target)
+        if source.stat().st_size != target.stat().st_size or source.read_bytes() != target.read_bytes():
+            raise RuntimeError(f"图片迁移校验失败：{source}")
+        copied += 1
+    return copied
+
+
+def _copy_owned_rows(source: sqlite3.Connection, target: sqlite3.Connection,
+                     table: str, owner_id: int, target_uid: int) -> int:
+    rows = source.execute(f"SELECT * FROM {table} WHERE user_id=?", (owner_id,)).fetchall()
+    if not rows:
+        return 0
+    cols = [r["name"] for r in target.execute(f"PRAGMA table_info({table})")]
+    names = [name for name in rows[0].keys() if name in cols]
+    marks = ",".join("?" for _ in names)
+    sql = f"INSERT OR IGNORE INTO {table}({','.join(names)}) VALUES({marks})"
+    for row in rows:
+        expected = dict(row)
+        expected["user_id"] = target_uid
+        if table == "math_problems":
+            prefix = f"math_images/{owner_id}/"
+            image_path = expected.get("image_path") or ""
+            if image_path.startswith(prefix):
+                expected["image_path"] = _user_image_rel(
+                    target_uid, image_path[len(prefix):]
+                )
+        target.execute(sql, tuple(expected[name] for name in names))
+        key_cols = ["user_id", "key"] if table == "user_profile" else ["id"]
+        key_values = [expected[k] for k in key_cols]
+        got = target.execute(
+            f"SELECT {','.join(names)} FROM {table} WHERE "
+            + " AND ".join(f"{key}= ?" for key in key_cols), key_values,
+        ).fetchone()
+        if got is None or dict(got) != {name: expected[name] for name in names}:
+            raise RuntimeError(f"迁移校验失败：{table} 中的记录 {key_values}")
+    return len(rows)
+
+
+def _copy_user_data(source: sqlite3.Connection, target: sqlite3.Connection,
+                    source_uid: int, target_uid: int) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    article_ids = [r[0] for r in source.execute(
+        "SELECT id FROM articles WHERE user_id=?", (source_uid,)
+    )]
+    problem_ids = [r[0] for r in source.execute(
+        "SELECT id FROM math_problems WHERE user_id=?", (source_uid,)
+    )]
+    for table in _USER_OWNED_TABLES:
+        counts[table] = _copy_owned_rows(source, target, table, source_uid, target_uid)
+    if article_ids:
+        marks = ",".join("?" for _ in article_ids)
+        for table in _ARTICLE_CHILD_TABLES:
+            rows = source.execute(f"SELECT * FROM {table} WHERE article_id IN ({marks})", article_ids).fetchall()
+            cols = [r["name"] for r in target.execute(f"PRAGMA table_info({table})")]
+            names = [name for name in rows[0].keys() if name in cols] if rows else []
+            if names:
+                insert = f"INSERT OR IGNORE INTO {table}({','.join(names)}) VALUES({','.join('?' for _ in names)})"
+                for row in rows:
+                    target.execute(insert, tuple(row[name] for name in names))
+                for row in rows:
+                    key = row["id"]
+                    got = target.execute(f"SELECT {','.join(names)} FROM {table} WHERE id=?", (key,)).fetchone()
+                    if got is None or dict(got) != dict(row):
+                        raise RuntimeError(f"迁移校验失败：{table} 中的记录 {key}")
+            counts[table] = len(rows)
+        task_ids = [r[0] for r in source.execute(
+            f"SELECT id FROM imitation_tasks WHERE article_id IN ({marks})", article_ids
+        )]
+        if task_ids:
+            task_marks = ",".join("?" for _ in task_ids)
+            rows = source.execute(f"SELECT * FROM submissions WHERE task_id IN ({task_marks})", task_ids).fetchall()
+            cols = [r["name"] for r in target.execute("PRAGMA table_info(submissions)")]
+            names = [name for name in rows[0].keys() if name in cols] if rows else []
+            if names:
+                insert = f"INSERT OR IGNORE INTO submissions({','.join(names)}) VALUES({','.join('?' for _ in names)})"
+                for row in rows:
+                    target.execute(insert, tuple(row[name] for name in names))
+                for row in rows:
+                    got = target.execute(f"SELECT {','.join(names)} FROM submissions WHERE id=?", (row["id"],)).fetchone()
+                    if got is None or dict(got) != dict(row):
+                        raise RuntimeError(f"迁移校验失败：submissions 中的记录 {row['id']}")
+            counts["submissions"] = len(rows)
+        else:
+            counts.update({"submissions": 0})
+    else:
+        counts.update({name: 0 for name in (*_ARTICLE_CHILD_TABLES, "submissions")})
+    if problem_ids:
+        marks = ",".join("?" for _ in problem_ids)
+        rows = source.execute(f"SELECT * FROM math_review_log WHERE problem_id IN ({marks}) AND user_id=?",
+                              (*problem_ids, source_uid)).fetchall()
+        # math_review_log is already copied from the user_id tables above.
+        counts["math_review_log"] = len(rows)
+    return counts
+
+
+def migrate_legacy_user_data() -> dict[int, dict[str, int]]:
+    """备份并把中心库中各账号的学习数据幂等拆分到个人库。"""
+    settings.db_path.parent.mkdir(parents=True, exist_ok=True)
+    with connect(central=True) as source:
+        users_rows = source.execute("SELECT id,username FROM users WHERE id>0 ORDER BY id").fetchall()
+        if not users_rows:
+            return {}
+        pending = any(source.execute(
+            f"SELECT 1 FROM {table} WHERE user_id>0 LIMIT 1"
+        ).fetchone() for table in _USER_OWNED_TABLES)
+        if not pending:
+            return {}
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = _backup_central("pre_user_split")
+        old_images = settings.db_path.parent / "math_images"
+        if old_images.exists():
+            shutil.copytree(old_images, backup_dir / "math_images")
+        result: dict[int, dict[str, int]] = {}
+        for user in users_rows:
+            uid = int(user["id"])
+            with as_user(uid):
+                target_path = user_data_dir(uid) / "learning.db"
+                with sqlite3.connect(target_path, timeout=30) as target:
+                    target.row_factory = sqlite3.Row
+                    target.execute("PRAGMA foreign_keys=ON")
+                    target.executescript(SCHEMA)
+                    _migrate(target)
+                    result[uid] = _copy_user_data(source, target, uid, uid)
+                old_user_images = old_images / str(uid)
+                if old_user_images.exists():
+                    new_user_images = user_data_dir(uid) / "math_images"
+                    new_user_images.mkdir(parents=True, exist_ok=True)
+                    _copy_images_verified(old_user_images, new_user_images)
+        # 只有所有用户的复制和记录逐条校验都成功后，才从中心库清理重复行。
+        with source:
+            for table in ("submissions", *_ARTICLE_CHILD_TABLES, *_USER_OWNED_TABLES):
+                if table in _ARTICLE_CHILD_TABLES or table == "submissions":
+                    source.execute(
+                        f"DELETE FROM {table} WHERE " +
+                        ("article_id IN (SELECT id FROM articles WHERE user_id>0)" if table != "submissions"
+                         else "task_id IN (SELECT id FROM imitation_tasks WHERE article_id IN "
+                              "(SELECT id FROM articles WHERE user_id>0))")
+                    )
+                else:
+                    source.execute(f"DELETE FROM {table} WHERE user_id>0")
+    return result
+
+
 # ------------------------------------------------------------
 # 底层执行（不带隔离逻辑的地方用；业务读写请用下面的封装）
 # ------------------------------------------------------------
 def query(sql: str, args: tuple = ()) -> list[dict]:
-    with connect() as conn:
+    central = _sql_uses_central_tables(sql)
+    with connect(central=True if central else None) as conn:
         rows = conn.execute(sql, args).fetchall()
         return [dict(r) for r in rows]
 
@@ -585,13 +858,15 @@ def query_one(sql: str, args: tuple = ()) -> dict | None:
 
 
 def execute(sql: str, args: tuple = ()) -> int:
-    with connect() as conn:
+    central = _sql_uses_central_tables(sql)
+    with connect(central=True if central else None) as conn:
         cur = conn.execute(sql, args)
         return cur.lastrowid
 
 
 def executemany(sql: str, seq: list[tuple]) -> None:
-    with connect() as conn:
+    central = _sql_uses_central_tables(sql)
+    with connect(central=True if central else None) as conn:
         conn.executemany(sql, seq)
 
 
