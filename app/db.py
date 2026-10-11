@@ -213,7 +213,8 @@ SCHEMA = (
     "    cn_definition     TEXT,\n"
     "    example           TEXT,\n"
     "    importance        INTEGER DEFAULT 3,          -- 考研重要程度 1-5\n"
-    "    mastery           INTEGER DEFAULT 0,          -- 0未标记 1不认识 2重点学习 3已掌握\n"
+    "    mastery           INTEGER DEFAULT 1,          -- 1不认识 2重点学习 3已掌握（默认就是「不认识」，\n"
+    "                                                  -- 由用户自己挑哪些已掌握 —— 2026-10-11 用户口径）\n"
     "    favorite          INTEGER DEFAULT 0,\n"
     "    occurrence        INTEGER DEFAULT 1,          -- 累计出现次数（跨文章累加）\n"
     "    last_review_at    TEXT,\n"
@@ -325,6 +326,26 @@ SCHEMA = (
     "    created_at TEXT DEFAULT (datetime('now','localtime')),\n"
     "    updated_at TEXT,\n"
     "    UNIQUE(user_id, doc_key)\n"
+    ");\n"
+    "\n-- 阅读笔记（划选填充高亮 → 自动记一条；独立成库，且有复习阶梯）\n"
+    "CREATE TABLE IF NOT EXISTS reading_notes (\n"
+    "    id           INTEGER PRIMARY KEY AUTOINCREMENT,\n"
+    "    user_id      INTEGER,\n"
+    "    article_id   INTEGER,                     -- 来自哪篇（每日内容 / 真题）\n"
+    "    doc_date     TEXT,                        -- 日期或 exam-2010-text2，便于按篇回看\n"
+    "    kind         TEXT DEFAULT 'vocab',        -- vocab | phrase | sentence | other\n"
+    "    content      TEXT NOT NULL,               -- 高亮选中的原文\n"
+    "    cn           TEXT,                        -- 中文意思（双击查词/AI 补的，可空）\n"
+    "    note         TEXT,                        -- 我自己的批注\n"
+    "    color        TEXT DEFAULT 'yellow',        -- 填充颜色\n"
+    "    context      TEXT,                        -- 所在句子：复习时给回忆线索\n"
+    "    para_index   INTEGER,                     -- 第几段（重新打开文章时按它精确画回高亮）\n"
+    "    char_start   INTEGER,                     -- 段内起始字符位置\n"
+    "    created_at   TEXT DEFAULT (datetime('now','localtime')),\n"
+    "    updated_at   TEXT,\n"
+    "    review_count INTEGER DEFAULT 0,\n"
+    "    next_review  TEXT DEFAULT '',              -- 空 = 不在复习队列\n"
+    "    last_result  TEXT\n"
     ");\n"
     "\n-- 全局设置（跟具体用户无关的东西）\n"
     "CREATE TABLE IF NOT EXISTS profile (\n"
@@ -527,6 +548,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_math_user ON math_problems(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_math_user_due ON math_problems(user_id, next_review)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_math_log ON math_review_log(user_id, problem_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON reading_notes(user_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_article ON reading_notes(user_id, article_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_due ON reading_notes(user_id, next_review)")
 
     # ---- 4) 只回填本次新加的列 ----
     # library 是特例：要按 item_type 推断，而不是填统一默认值
@@ -557,6 +581,12 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 等第一个账号建好，由 users.claim_orphan_data() 整体划给它。
     for _t in ("articles", "study_log", "favorites", "events"):
         conn.execute(f"UPDATE {_t} SET user_id=? WHERE user_id IS NULL", (UNCLAIMED,))
+
+    # ---- 6) 词汇默认「不认识」（2026-10-11 用户口径）----
+    # 以前 mastery=0 表示「未标记」，界面上是一堆没态度的条目；现在默认就该是不认识，
+    # 由用户自己去点「已掌握」。0 不再是合法状态，所以把存量 0 一次性并到 1。
+    # 幂等：再跑一次也只会命中 0，不会有副作用。
+    conn.execute("UPDATE vocab SET mastery=1 WHERE mastery IS NULL OR mastery=0")
 
 
 _CENTRAL_TABLES = {"users", "sessions", "profile"}

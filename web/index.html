@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png">
 <link rel="stylesheet" href="/static/katex/katex.min.css">
-<link rel="stylesheet" href="/static/style.css?v=20261011-fix1">
+<link rel="stylesheet" href="/static/style.css?v=20261011-notes1">
 </head>
 <body>
 
@@ -33,6 +33,7 @@
         <button class="icon-btn has-badge" id="btnReview" title="今日复习">🔁<span class="badge" id="revBadge" hidden>0</span></button>
         <button class="icon-btn has-badge" id="btnSubjects" title="选择科目">🎓<span class="badge" id="mathBadge" hidden>0</span></button>
         <button class="icon-btn" id="btnLibrary" title="素材库">📚</button>
+        <button class="icon-btn" id="btnNotes" title="阅读笔记 / 语法积累">📝</button>
         <button class="icon-btn" id="btnStats" title="学习数据">📊</button>
         <button class="icon-btn" id="btnHistory" title="历史 / 真题">🗂</button>
       </div>
@@ -141,17 +142,8 @@
         <div class="acc-body" id="gramList"></div>
       </details>
 
-      <!-- 阅读逻辑 -->
-      <details class="acc card" id="accLogic">
-        <summary><span class="ico">🔍</span><span class="acc-title">阅读逻辑</span><span class="acc-sub">篇章结构 · 作者态度</span></summary>
-        <div class="acc-body" id="logicBody"></div>
-      </details>
-
-      <!-- 命题视角：出题人怎么设题（本次改造的核心） -->
-      <details class="acc card" id="accExam" open>
-        <summary><span class="ico">🎯</span><span class="acc-title">命题视角</span><span class="acc-sub" id="examSub"></span></summary>
-        <div class="acc-body" id="examBody"></div>
-      </details>
+      <!-- 阅读逻辑 / 命题视角：用户 2026-10-11 明确「暂时不需要」，先撤掉入口。
+           数据仍在库里（articles.logic / exam_focus），以后想要随时能接回来。 -->
 
       <!-- 写作表达 -->
       <details class="acc card" id="accWrite">
@@ -231,8 +223,18 @@
   <div class="page-body" id="pageBody-review"></div>
 </section>
 
+<!-- 阅读笔记 + 语法积累库（用户 2026-10-11：划选填充的东西要单独成一个库，并能不断复现） -->
+<section class="page" id="page-notes" hidden>
+  <div class="page-head">
+    <button class="icon-btn page-back" data-back title="返回今日内容">←</button>
+    <h2>阅读笔记</h2>
+  </div>
+  <div class="page-body" id="pageBody-notes"></div>
+</section>
+
 <!-- 错题总库（数学一 + 信号与系统共用）：拍照 → 只取题干 → 确认分类 → 入错题库；先做题、后看解析。
      标题由 app.js 按当前科目筛选动态改（错题总库 / 信号与系统 · 错题库）。 -->
+
 <section class="page" id="page-math" hidden>
   <div class="page-head">
     <button class="icon-btn page-back" data-back data-back-to="subjects" title="返回科目选择">←</button>
@@ -312,10 +314,35 @@
   </div>
 </div>
 
+<!-- 划选填充工具条：选中正文里的词/句就浮出来（原来的手写笔已按用户要求换成这个） -->
+<div class="hl-bar" id="hlBar" hidden>
+  <span class="hl-bar-tip">已选中：<b id="hlPreview"></b></span>
+  <span class="hl-bar-colors">
+    <button class="hl-dot hl-yellow" data-hl-color="yellow" title="黄色"></button>
+    <button class="hl-dot hl-green" data-hl-color="green" title="绿色"></button>
+    <button class="hl-dot hl-blue" data-hl-color="blue" title="蓝色"></button>
+    <button class="hl-dot hl-pink" data-hl-color="pink" title="粉色"></button>
+  </span>
+  <button class="btn tiny primary" id="hlSave">填充并记入笔记</button>
+  <button class="btn tiny" id="hlCancel">取消</button>
+</div>
+
+<!-- 双击查词的小卡片 -->
+<div class="word-pop" id="wordPop" hidden>
+  <div class="word-pop-head">
+    <b id="wpWord"></b><span class="muted small" id="wpPhon"></span>
+    <button class="icon-btn" id="wpClose" title="关闭">✕</button>
+  </div>
+  <div class="word-pop-body" id="wpBody"></div>
+  <div class="word-pop-actions">
+    <button class="btn tiny" id="wpSave">记入阅读笔记</button>
+  </div>
+</div>
+
 <div class="toast" id="toast" hidden></div>
 
 <script src="/static/katex/katex.min.js"></script>
-<script src="/static/pen.js"></script>
-<script src="/static/app.js?v=20261011-fix1"></script>
+<script src="/static/notes.js?v=20261011-notes1"></script>
+<script src="/static/app.js?v=20261011-notes1"></script>
 </body>
 </html>

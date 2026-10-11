@@ -1071,3 +1071,82 @@ def grade_submission(task_id: int, answer: str) -> dict:
     except Exception as exc:  # noqa: BLE001
         fb["material_usage"] = {"used": [], "unused": [], "stats": {}, "error": str(exc)}
     return {"round": rnd, "feedback": fb}
+
+
+# ============================================================
+# 双击查词（2026-10-11 用户要求：阅读文章里双击单词就给翻译）
+# ------------------------------------------------------------
+# 定位：
+#   它和「本篇词汇表」不是一回事 —— 词汇表是 AI 提前筛过的重点词，
+#   而双击是「我读到这儿不认识，立刻想知道」。所以：
+#     · 只做一次很短的调用，只要中文意思 + 在本句里的意思，不做长篇讲解；
+#     · 结果在进程内缓存，同一个词反复点不重复烧额度；
+#     · 不自动写进词汇表（用户划线时才会进「阅读笔记」，那是另一条路）。
+# ============================================================
+_LOOKUP_CACHE: dict[str, dict] = {}
+_LOOKUP_CACHE_MAX = 300
+
+LOOKUP_SYSTEM = """你是考研英语一的阅读老师。学生读文章时点了一个词/短语，你要立刻给他能用的信息。
+
+只输出一个 JSON 对象，不要 markdown 围栏，不要任何解释性文字：
+{
+  "word": "原词或原短语",
+  "phonetic": "音标（拿不准就给空字符串）",
+  "pos": "词性缩写，如 n. / v. / adj. / phr.",
+  "cn": "最贴切的中文意思，一行，多个义项用「；」隔开",
+  "in_context": "**在这一句里**具体是什么意思（中文，一句话）",
+  "example": "一个简短英文例句（优先用学生给的那句原文）"
+}
+
+要求：
+1. 内容要短。这是在手机上弹一个小卡片，不是写词条。
+2. 如果是短语或固定搭配，按搭配给意思，不要拆成单词。
+3. 拿不准的意思就不要编，宁可少给一个义项。"""
+
+
+def lookup_word(word: str, context: str = "") -> dict:
+    """双击查词：返回 {word, phonetic, pos, cn, in_context, example}。
+
+    AI 不可用 / 失败会抛 AIError，由上层转成人话提示。
+    """
+    w = (word or "").strip().strip(".,;:!?()[]\"'“”‘’")
+    if not w:
+        raise AIError("没有取到单词")
+    if len(w) > 60:
+        raise AIError("选中的内容太长了，双击单词或用划线记笔记更合适")
+    key = w.lower()
+    cached = _LOOKUP_CACHE.get(key)
+    if cached:
+        return {**cached, "cached": True}
+
+    user = f"要查的词/短语：{w}"
+    if context:
+        user += f"\n它出现的句子：{context[:400]}"
+    raw = get_provider().chat(
+        LOOKUP_SYSTEM, user,
+        temperature=0.1,      # 查词不需要发挥
+        max_tokens=1200,
+        retries=1,
+    )
+    try:
+        d = parse_json(raw)
+    except AIError as exc:
+        raise AIError(f"查词结果不是合法 JSON：{exc}") from exc
+    if not isinstance(d, dict):
+        raise AIError("查词返回的不是 JSON 对象")
+
+    out = {
+        "word": str(d.get("word") or w).strip(),
+        "phonetic": str(d.get("phonetic") or "").strip(),
+        "pos": str(d.get("pos") or "").strip(),
+        "cn": str(d.get("cn") or "").strip(),
+        "in_context": str(d.get("in_context") or "").strip(),
+        "example": str(d.get("example") or "").strip(),
+    }
+    if not out["cn"] and not out["in_context"]:
+        raise AIError("这次没查到意思，再点一次试试")
+    if len(_LOOKUP_CACHE) >= _LOOKUP_CACHE_MAX:
+        _LOOKUP_CACHE.clear()
+    _LOOKUP_CACHE[key] = out
+    db.log_event("word_lookup", None, {"word": w})
+    return {**out, "cached": False}

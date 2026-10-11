@@ -114,6 +114,8 @@ async function boot() {
   } finally {
     $("#loadingState").hidden = true;
   }
+  /* 阅读笔记：划选填充 + 双击查词。挂一次就够，它会自己在正文上做事件委托。 */
+  if (window.Notes) window.Notes.init();
   /* 后台可能还有一次没跑完的生成（用户点了之后刷新/换设备回来了）——
      接着把进度显示出来，别让他以为白点了。 */
   resumePendingJob();
@@ -273,13 +275,17 @@ function renderBundle(b) {
   renderVocab(b.vocab || []);
   renderSentences(b.sentences || []);
   renderGrammar(b.grammar || []);
+  /* 阅读逻辑 / 命题视角：用户 2026-10-11 说暂时不需要，入口已从 index.html 撤掉。
+     两个函数仍保留（数据也还在库里），容器不存在时它们自己会安静跳过 ——
+     以后想接回来，把 index.html 里那两块 <details> 加回去就行。 */
   renderLogic(a.logic || {});
   renderExamFocus(a.exam_focus || {});
   renderWriting(b.writing_items || []);
   renderImitation(b);
   renderTodayStats(b.study_log);
-  /* 手写批注：DOM 刚被整体重绘，先把画布重新挂好，再把这一篇的笔迹拉回来 */
-  if (window.Pen) { window.Pen.sync(); window.Pen.setDoc(a.date); }
+  /* 高亮比手写笔好在这儿：它是「数据」不是「像素」，
+     换设备、重开文章都能按段落位置精确画回去。 */
+  if (window.Notes) window.Notes.renderForArticle(a.id);
 }
 
 /* 统一入口：把任意一个 bundle 送到主视图（每日内容与真题共用同一套精读界面） */
@@ -307,10 +313,15 @@ function renderTranslation(b) {
 /* ---------------- 词汇 ---------------- */
 const MASTERY_CLASS = { 1: "m-unknown", 2: "m-focus", 3: "m-known" };
 function renderVocab(list) {
-  $("#vocabSub").textContent = `${list.length} 个`;
+  const unknown = list.filter(v => (v.mastery || 1) === 1).length;
+  $("#vocabSub").textContent = `${list.length} 个 · 待攻克 ${unknown}`;
   const box = $("#vocabList");
   if (!list.length) { box.innerHTML = `<p class="muted small">本篇暂无词汇条目</p>`; return; }
-  box.innerHTML = list.map(v => `
+  /* 用户 2026-10-11 的口径：这些词**默认都按「不认识」给我**，
+     由我自己挑哪些已经掌握 —— 所以列表默认全是不认识态，点一下就改。 */
+  box.innerHTML = `<p class="muted small" style="margin:0 0 8px">
+      默认都按「不认识」收着。已经会的直接点「已掌握」，就不会再占你的待攻克数。
+    </p>` + list.map(v => `
     <div class="v-item ${MASTERY_CLASS[v.mastery] || ""}" data-vid="${v.id}">
       <div class="v-head">
         <span class="v-word">${esc(v.word)}</span>
@@ -417,22 +428,64 @@ $("#sentList").addEventListener("click", async e => {
   }
 });
 
-/* ---------------- 语法 ---------------- */
-function renderGrammar(list) {
+/* ---------------- 语法 ----------------
+   用户 2026-10-11 的两条要求：
+     · 「语法解释不用解释的太杂 只需要把重要的知识点解释出来就行 然后再举个例子」
+       → 提示词已改成「只讲一个知识点 + 只给一个例句」（见 app/ai/prompts.py），
+         前端也按这个口径收敛：解释一段、例句一条，不再堆 pattern 与多条例句。
+     · 「还应有单独的语法积累库」
+       → 每条右侧有「收进语法库」，进的是跨文章的独立库，且有复习阶梯。 */
+function renderGrammar(list, opts) {
   $("#gramSub").textContent = `${list.length} 个`;
-  $("#gramList").innerHTML = list.length ? list.map(g => `
+  $("#gramList").innerHTML = list.length ? list.map((g, i) => {
+    const ex = (g.examples || [])[0] || "";
+    return `
     <div class="g-item">
       <div class="g-name">${esc(g.name)}<span class="g-cat">${esc(g.category || "句法")}</span></div>
       <div class="g-text">${esc(g.explanation)}</div>
-      ${g.pattern ? `<div class="g-pattern">${esc(g.pattern)}</div>` : ""}
-      ${(g.examples || []).map(x => `<div class="g-ex">${esc(x)}</div>`).join("")}
-    </div>`).join("") : `<p class="muted small">本篇暂无语法条目</p>`;
+      ${g.pattern ? `<div class="g-pattern">结构：${esc(g.pattern)}</div>` : ""}
+      ${ex ? `<div class="g-ex">${esc(ex)}</div>` : ""}
+      <div class="g-actions">
+        <button class="btn tiny" data-gram-save="${i}">＋ 收进语法积累库</button>
+      </div>
+    </div>`;
+  }).join("") : `<p class="muted small">本篇暂无语法条目</p>`;
 }
 
-/* ---------------- 阅读逻辑 ---------------- */
+/* 语法入库：跨文章攒同一个语法点，进独立的语法积累库并进入复习节奏 */
+$("#gramList").addEventListener("click", async e => {
+  const btn = e.target.closest("[data-gram-save]");
+  if (!btn) return;
+  const g = (state.bundle.grammar || [])[Number(btn.dataset.gramSave)];
+  if (!g) return;
+  const art = state.bundle.article || {};
+  btn.disabled = true; btn.textContent = "收集中…";
+  try {
+    const r = await api("/api/grammar/save", {
+      method: "POST",
+      body: JSON.stringify({
+        name: g.name, explanation: g.explanation, pattern: g.pattern,
+        example: (g.examples || [])[0] || "", category: g.category, date: state.date,
+      }),
+    });
+    btn.textContent = "★ 已在语法库";
+    toast(r.created
+      ? "已收进语法积累库，明天起会出现在今日复习里"
+      : "这条语法点已经在库里了");
+  } catch (err) {
+    toast(err.message, true);
+    btn.disabled = false; btn.textContent = "＋ 收进语法积累库";
+  }
+});
+
+/* ---------------- 阅读逻辑 ----------------
+   入口已在 index.html 撤掉（用户 2026-10-11：暂时不需要）。
+   这里保留渲染逻辑本身，容器不在就直接跳过 —— 别让缺元素把整页渲染打断。 */
 function renderLogic(lg) {
+  const box = $("#logicBody");
+  if (!box) return;
   const struct = lg.structure || [];
-  $("#logicBody").innerHTML = `
+  box.innerHTML = `
     ${lg.overall ? `<div class="lg-overall"><b>中心论点：</b>${esc(lg.overall)}</div>` : ""}
     ${struct.map(p => `
       <div class="lg-para">
@@ -453,12 +506,15 @@ function efQtypeCount(sp) {
 }
 
 function renderExamFocus(f) {
-  const sp = f.set_points || [];
-  $("#examSub").textContent = f.pattern
-    ? `${f.pattern} · ${sp.length} 个设题点 · 覆盖 ${efQtypeCount(sp)} 种题型`
-    : "";
-
   const box = $("#examBody");
+  if (!box) return;                      /* 入口已撤，见 renderLogic 上面的说明 */
+  const sp = f.set_points || [];
+  const sub = $("#examSub");
+  if (sub) {
+    sub.textContent = f.pattern
+      ? `${f.pattern} · ${sp.length} 个设题点 · 覆盖 ${efQtypeCount(sp)} 种题型`
+      : "";
+  }
   if (!f.pattern && !sp.length) {
     box.innerHTML = `<p class="muted small">本篇没有命题视角数据。</p>
       <p class="muted small">更早生成的文章解析里不含这部分——点上方「重新生成本篇」或导入真题后，就会有出题人视角的完整拆解。</p>`;
@@ -1184,13 +1240,14 @@ function renderReview() {
 function revCard(it, i) {
   const rc = it.review_count || 0;
   const lv = it.level || "B";
+  const isNote = it.src === "note";
   return `
-    <div class="rev-card" data-id="${it.id}">
+    <div class="rev-card" data-id="${it.id}" data-src="${isNote ? "note" : "fav"}">
       <div class="rev-top">
         <span class="rev-idx">${i + 1}</span>
-        ${posChip(it.position || "universal")}
-        ${genreChip(it.genre)}
-        <span class="mat-lv lv-${lv}">${lv}</span>
+        ${isNote ? `<span class="chip accent">阅读笔记</span>` : posChip(it.position || "universal")}
+        ${isNote ? "" : genreChip(it.genre)}
+        ${isNote ? "" : `<span class="mat-lv lv-${lv}">${lv}</span>`}
         <span class="rev-due muted">${rc ? `已复习 ${rc} 次` : "第一次复习"}</span>
       </div>
       <div class="rev-en">${esc(it.content)}</div>
@@ -1210,6 +1267,7 @@ document.addEventListener("click", async e => {
   if (!btn) return;
   const id = card.dataset.id;
   const act = btn.dataset.rev;
+  const src = card.dataset.src || "fav";
 
   if (act === "show") {
     card.querySelector(".rev-answer").hidden = false;
@@ -1225,7 +1283,7 @@ document.addEventListener("click", async e => {
   try {
     const r = await api(`/api/review/${id}/result`, {
       method: "POST",
-      body: JSON.stringify({ result: act }),
+      body: JSON.stringify({ result: act, src }),
     });
     REV.stats = r.stats || {};
     markReviewed(card, act, r.item);
@@ -1254,6 +1312,150 @@ function syncRevStats() {
     if (el) el.textContent = v;
   });
 }
+
+/* ---------------- 阅读笔记 + 语法积累库 ----------------
+   用户 2026-10-11：「填充的单词或短语自动识别保留进阅读的笔记中，
+   笔记单独是一个内容，用于存放我的阅读笔记」+「还应有单独的语法积累库」。
+   两件事放在同一页的两个标签下：都是「攒起来 + 每天复现」的东西。 */
+let NOTES_TAB = "note";
+
+async function loadNotes(tab) {
+  if (tab) NOTES_TAB = tab;
+  const { box, isCurrent } = pageLoadContext("notes");
+  if (!box.innerHTML.trim()) box.innerHTML = `<p class="muted small">加载中…</p>`;
+  try {
+    const [n, g] = await Promise.all([
+      api("/api/notes?limit=300"),
+      api("/api/grammar/library?limit=300"),
+    ]);
+    if (!isCurrent()) return;
+    NOTES_CACHE = { notes: n.items || [], grammars: g.items || [], stats: n.stats || {} };
+    renderNotesPage();
+  } catch (e) {
+    if (isCurrent()) box.innerHTML = `<p class="muted small">${esc(e.message)}</p>`;
+  }
+}
+
+let NOTES_CACHE = { notes: [], grammars: [], stats: {} };
+
+const NOTE_KIND_LABEL = { vocab: "单词", phrase: "短语", sentence: "句子", other: "其他" };
+
+function renderNotesPage() {
+  if (currentView !== "notes") return;
+  const box = $("#pageBody-notes");
+  const st = NOTES_CACHE.stats || {};
+  const tab = NOTES_TAB;
+  const head = `
+    <div class="lib-summary">
+      <div class="lib-sum-item"><b>${st.total || 0}</b><span>笔记总量</span></div>
+      <div class="lib-sum-item"><b>${st.due || 0}</b><span>今日待复习</span></div>
+      <div class="lib-sum-item"><b>${st.in_cycle || 0}</b><span>在复习周期</span></div>
+      <div class="lib-sum-item"><b>${(NOTES_CACHE.grammars || []).length}</b><span>语法积累</span></div>
+    </div>
+    <div class="hist-tabs">
+      <button class="hist-tab ${tab === "note" ? "on" : ""}" data-ntab="note">📝 阅读笔记</button>
+      <button class="hist-tab ${tab === "grammar" ? "on" : ""}" data-ntab="grammar">🧠 语法积累库</button>
+    </div>
+    <p class="muted small" style="line-height:1.8">
+      在文章里<b>划选</b>词句就会自动记到这里，第二天起进入「今日复习」，
+      按 1 → 2 → 4 → 7 → 15 → 30 → 60 天不断复现。
+    </p>`;
+  const body = tab === "grammar" ? notesGrammarHtml() : notesListHtml();
+  box.innerHTML = head + body;
+}
+
+function notesListHtml() {
+  const items = NOTES_CACHE.notes || [];
+  if (!items.length) {
+    return `<p class="center muted" style="margin:26px 0">还没有阅读笔记。<br>
+      回到文章里选中一个词或一句话，点「填充并记入笔记」就会出现在这里。</p>`;
+  }
+  return `<div class="note-list">` + items.map(n => `
+    <div class="note-card hl-${esc(n.color || "yellow")}" data-note-id="${n.id}">
+      <div class="note-top">
+        <span class="note-kind">${esc(NOTE_KIND_LABEL[n.kind] || "笔记")}</span>
+        <span class="muted small">${esc(n.doc_date || "")}</span>
+        <span class="muted small">${n.review_count ? `已复习 ${n.review_count} 次` : "未复习"}</span>
+      </div>
+      <div class="note-content">${esc(n.content)}</div>
+      ${n.cn ? `<div class="note-cn">${esc(n.cn)}</div>` : ""}
+      ${n.context ? `<div class="note-context">${esc(n.context)}</div>` : ""}
+      <input class="field-input note-input" data-note-input="${n.id}"
+        placeholder="写点自己的批注…" value="${esc(n.note || "")}">
+      <div class="note-actions">
+        ${n.cn ? "" : `<button class="btn tiny" data-note-cn="${n.id}">查意思</button>`}
+        <button class="btn tiny" data-note-save="${n.id}">保存批注</button>
+        <button class="btn tiny warnish" data-note-del="${n.id}">删除</button>
+      </div>
+    </div>`).join("") + `</div>`;
+}
+
+function notesGrammarHtml() {
+  const items = NOTES_CACHE.grammars || [];
+  if (!items.length) {
+    return `<p class="center muted" style="margin:26px 0">语法库还是空的。<br>
+      在「今日语法」里点「＋ 收进语法积累库」，就会攒到这里。</p>`;
+  }
+  return `<div class="note-list">` + items.map(g => `
+    <div class="note-card gram">
+      <div class="note-top">
+        <span class="note-kind">${esc((g.tags || [])[1] || "句法")}</span>
+        <span class="muted small">${esc((g.tags || [])[2] || "")}</span>
+        <span class="muted small">${g.review_count ? `已复习 ${g.review_count} 次` : "未复习"}</span>
+      </div>
+      <div class="note-content">${esc(g.content)}</div>
+      ${g.cn ? `<div class="note-cn">${esc(g.cn)}</div>` : ""}
+      ${g.example ? `<div class="note-context">${esc(g.example)}</div>` : ""}
+    </div>`).join("") + `</div>`;
+}
+
+/* 笔记页里的按钮 */
+document.addEventListener("click", async e => {
+  const t = e.target.closest("[data-ntab]");
+  if (t) { loadNotes(t.dataset.ntab); return; }
+
+  const cn = e.target.closest("[data-note-cn]");
+  if (cn) {
+    const id = cn.dataset.noteCn;
+    cn.disabled = true; cn.textContent = "查询中…";
+    try {
+      const r = await api(`/api/notes/${id}/enrich`, { method: "POST", body: "{}" });
+      const it = NOTES_CACHE.notes.find(x => String(x.id) === String(id));
+      if (it) it.cn = (r.note && r.note.cn) || "";
+      renderNotesPage();
+      toast("已补上中文意思");
+    } catch (err) { toast(err.message, true); cn.disabled = false; cn.textContent = "查意思"; }
+    return;
+  }
+
+  const sv = e.target.closest("[data-note-save]");
+  if (sv) {
+    const id = sv.dataset.noteSave;
+    const input = document.querySelector(`[data-note-input="${id}"]`);
+    sv.disabled = true;
+    try {
+      await api(`/api/notes/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ note: input ? input.value : "" }),
+      });
+      toast("批注已保存");
+    } catch (err) { toast(err.message, true); }
+    finally { sv.disabled = false; }
+    return;
+  }
+
+  const del = e.target.closest("[data-note-del]");
+  if (del) {
+    const id = del.dataset.noteDel;
+    if (!confirm("删掉这条阅读笔记？")) return;
+    try {
+      await api(`/api/notes/${id}`, { method: "DELETE" });
+      NOTES_CACHE.notes = NOTES_CACHE.notes.filter(x => String(x.id) !== String(id));
+      renderNotesPage();
+      toast("已删除");
+    } catch (err) { toast(err.message, true); }
+  }
+});
 
 /* ---------------- 素材库入口（放在设置弹层里） ---------------- */
 const POS_LABEL = { opening: "开头段", transition: "过渡段", body: "主体段", ending: "结尾段", universal: "通用" };
@@ -1614,6 +1816,7 @@ document.addEventListener("input", e => {
 
 /* ---------------- 设置 ---------------- */
 $("#btnLibrary").addEventListener("click", () => navigate("library"));
+$("#btnNotes").addEventListener("click", () => navigate("notes"));
 
 $("#btnSettings").addEventListener("click", async () => {
   openSheet("设置", `<p class="muted small">加载中…</p>`);
@@ -1975,11 +2178,12 @@ document.addEventListener("click", async (e) => {
 /* 哪些视图属于**英语模块** —— 顶栏的任务类入口只在它们上面出现（见 showView）。
    ⚠️ 白名单：默认收起。数学一是独立模块，别加进来（用户 2026-10-07 指出）。
    "today" 不在 PAGES 里（它有自己的 #todayView），要单独列。 */
-const EN_TASK_VIEWS = new Set(["today", "review", "library", "stats", "history"]);
+const EN_TASK_VIEWS = new Set(["today", "review", "library", "notes", "stats", "history"]);
 
 const PAGES = {
   subjects: { el: "#page-subjects", body: "#pageBody-subjects" },
   library: { el: "#page-library", body: "#pageBody-library" },
+  notes:   { el: "#page-notes",   body: "#pageBody-notes" },
   stats:   { el: "#page-stats",   body: "#pageBody-stats" },
   history: { el: "#page-history", body: "#pageBody-history" },
   review:  { el: "#page-review",  body: "#pageBody-review" },
@@ -2074,6 +2278,7 @@ function backToToday() {
 function loadPage(view) {
   if (view === "subjects") return loadSubjects();
   if (view === "library") return loadLibrary();
+  if (view === "notes")   return loadNotes();
   if (view === "stats")   return loadStats();
   if (view === "history") return loadHistory();
   if (view === "review")  return loadReview();
@@ -2332,13 +2537,17 @@ const MATH = {
 
 /* ---- 公式渲染：本地 KaTeX（PWA 离线也能用） ----
    只认这几种定界：$$…$$ / $…$ / \[…\] / \(…\)。
-   渲染失败绝不丢内容 —— 退回等宽浅底块，至少能看出是个什么式子。 */
+   ⚠️ 渲染不出来时**必须让人看得出来**：以前默默退回一个等宽灰块，用户看到的就是
+   「AI 识别出来的题里带着数学代码」，根本分不清是模型输出烂还是渲染坏了。
+   现在失败会在源码前挂一个明确的「公式没能排版」标记。 */
 function mathKatex(tex, displayMode, auto) {
   const src = String(tex == null ? "" : tex).trim();
   if (!src) return "";
+  const fail = (why) =>
+    `<span class="mtex-badge" title="${esc(why)}">公式没能排版</span><span class="mtex">${esc(src)}</span>`;
   const k = window.katex;
   if (!k || typeof k.renderToString !== "function") {
-    return `<span class="mtex">${esc(src)}</span>`;
+    return fail("KaTeX 还没加载出来（首次离线访问会这样），刷新一下就能排版");
   }
   try {
     const html = k.renderToString(src, {
@@ -2353,9 +2562,15 @@ function mathKatex(tex, displayMode, auto) {
        这种要包一层 .momath 当 **inline-block** 用：
        句子能绕着排就绕着排，只有真放不下才换行 ——
        否则会切出「7. 设」/（矩阵）/「，a = 9…」这种行首挂逗号的排版，更难看。 */
-    return auto ? `<span class="momath">${html}</span>` : html;
-  } catch (_) {
-    return `<span class="mtex">${esc(src)}</span>`;
+    const body = auto ? `<span class="momath">${html}</span>` : html;
+    /* throwOnError:false 时 KaTeX 把不认识的命令**就地标红**而不是抛错，
+       所以要主动扫一眼 katex-error —— 有就照样给提示。 */
+    if (html.includes("katex-error")) {
+      return `<span class="mtex-badge">公式里有没认出来的部分</span>${body}`;
+    }
+    return body;
+  } catch (e) {
+    return fail(`KaTeX 报错：${(e && e.message) || e}`);
   }
 }
 
@@ -2447,8 +2662,16 @@ function mathChips(it) {
   return parts.join("");
 }
 
-/* ---- 客户端把手机大图压到 1600px 再上传：原图 4~8MB 直接发又慢又费 token ---- */
-function mathShrink(file, maxSide = 1600, quality = 0.86) {
+/* ---- 客户端把手机大图压一压再上传：原图 4~8MB 直接发又慢又费 token ----
+   ⚠️ 这里的清晰度直接决定识图准不准，别为了省流量往下调：
+   数学题的下标、指根号上的小数字、矩阵元素本来就细，一整页 30 行时
+     1600px → 一行约 40px、下标只剩约 13px（再叠 JPEG 噪点）→ 模型必然看错、漏字
+     2560px → 一行约 64px、下标约 21px，才够用
+   服务端上限是 12MB，这里自己再设 4MB 上限（Cloudflare 对上传还有 30 秒写入超时，
+   图太大在移动网络下会白传），超了就自动降质量再来一次，绝不直接失败。 */
+const MATH_SHRINK = { maxSide: 2560, quality: 0.92, maxBytes: 4 * 1024 * 1024 };
+
+function mathShrink(file, maxSide = MATH_SHRINK.maxSide, quality = MATH_SHRINK.quality) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -2462,7 +2685,24 @@ function mathShrink(file, maxSide = 1600, quality = 0.86) {
         cv.width = w; cv.height = h;
         cv.getContext("2d").drawImage(img, 0, 0, w, h);
         URL.revokeObjectURL(url);
-        resolve(cv.toDataURL("image/jpeg", quality));
+        /* dataURL 的字节数 ≈ 长度 × 3/4；超上限就一档一档降质量，
+           还超就按比例缩边（宁可小一点，也不能让用户卡在上传上）。 */
+        let data = cv.toDataURL("image/jpeg", quality);
+        const bytes = () => Math.round((data.length - data.indexOf(",") - 1) * 3 / 4);
+        let q = quality;
+        while (bytes() > MATH_SHRINK.maxBytes && q > 0.6) {
+          q = Math.round((q - 0.08) * 100) / 100;
+          data = cv.toDataURL("image/jpeg", q);
+        }
+        if (bytes() > MATH_SHRINK.maxBytes) {
+          const cv2 = document.createElement("canvas");
+          const k = Math.sqrt(MATH_SHRINK.maxBytes / bytes());
+          cv2.width = Math.max(1, Math.round(w * k));
+          cv2.height = Math.max(1, Math.round(h * k));
+          cv2.getContext("2d").drawImage(cv, 0, 0, cv2.width, cv2.height);
+          data = cv2.toDataURL("image/jpeg", 0.86);
+        }
+        resolve(data);
       } catch (e) { URL.revokeObjectURL(url); reject(e); }
     };
     img.onerror = () => {
@@ -3323,9 +3563,14 @@ function draftCard(d) {
       ${droppedNoteHtml(d)}
       ${err}${unc}
       ${draftPreviewHtml(d)}
-      <label class="field"><span>题干${d.status === "manual" ? "" : "（AI 只取题干，答案与解析不会进来）"}</span>
-        <textarea class="field-input math-textarea math-draft-stem"
-          placeholder="${d.status === "manual" ? "在这里输入题目，公式可用 LaTeX" : "识别完会自动填进来，也可以直接手打"}">${esc(d.stem || "")}</textarea></label>
+      <!-- 源码框默认折叠：用户的原话是「你给我的这是代码」。
+           上面的「题干预览」才是给他看的；源码只在需要改的时候才展开。 -->
+      <details class="draft-src">
+        <summary>编辑题干源码（LaTeX，改公式时才需要）</summary>
+        <label class="field"><span>题干${d.status === "manual" ? "" : "（AI 只取题干，答案与解析不会进来）"}</span>
+          <textarea class="field-input math-textarea math-draft-stem"
+            placeholder="${d.status === "manual" ? "在这里输入题目，公式可用 LaTeX" : "识别完会自动填进来，也可以直接手打"}">${esc(d.stem || "")}</textarea></label>
+      </details>
       ${aiClassifyHtml(d)}
       <div class="field-row">
         <label class="field"><span>科目</span>

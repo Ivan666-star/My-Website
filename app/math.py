@@ -580,11 +580,19 @@ EXTRACT_SYSTEM = """你是考研理科错题库（数学 / 信号与系统）的
 1. 只转录**题干**。答案、解析、「解：」后面的内容、讲解、页码页眉，一律不要。
 2. 如果用户给照片加了蓝色圆圈，圆圈标出的题号就是唯一目标。只转录这个题号开始的完整题干（包含下方续行、选项），到下一道同级题号或新章节标题为止；忽略照片中其他题和原有笔迹。不要把蓝圈转录进题干。
    没有蓝圈时，才取最完整、位置最靠上的一道；绝对不要合并多道题。
-3. 数学公式一律写成 LaTeX：行内用 $...$，独立成行的用 $$...$$。
+3. **完整优先**：题干里的每一行、每一个条件、每一个小问「(1)(2)(3)」、每一个选项 (A)(B)(C)(D) 都要转录，一个都不许省。
+   宁可把看不清的地方标成 □，也不许跳过整行或整段；同一个式子的上下标、根号上的指数、矩阵的每一行都要逐个核对。
+4. 数学公式一律写成 LaTeX：行内用 $...$，独立成行的用 $$...$$。
    极限、积分、求和、矩阵、行列式、向量、分式都必须用 LaTeX 表达，不要用普通文字糊过去。
-4. 照片里看不清的字符用 □ 占位。**绝对不要猜、不要替它补条件、不要改数字**。
-5. 保留题号（如「7.」「(3)」），但不要额外加「题目：」这类前缀。
-6. 不要输出任何解释、不要解题、不要给思路。
+5. 照片里看不清的字符用 □ 占位。**绝对不要猜、不要替它补条件、不要改数字**。
+6. 保留题号（如「7.」「(3)」），但不要额外加「题目：」这类前缀。
+7. 不要输出任何解释、不要解题、不要给思路。
+
+【输出格式的硬要求】
+- 只输出一个 JSON 对象，前后不要任何说明文字。
+- **不要**用 markdown 代码围栏（```）包起来，**不要**输出 HTML 标签（<br>、&nbsp;、<div> 等）。
+- 公式只用 $...$ 与 $$...$$ 两种定界，**不要**用 \\( \\) 或 \\[ \\]。
+- 每个 \\begin{...} 都必须有配对的 \\end{...}，不要写出没闭合的环境。
 
 【第二件：给出分类建议】
 按题意判断它属于哪个科目、哪个专题，以及更像历年考研真题还是普通练习。
@@ -598,6 +606,41 @@ EXTRACT_SYSTEM = """你是考研理科错题库（数学 / 信号与系统）的
   "kind": "exam=历年考研真题 / normal=普通练习题；拿不准给 normal",
   "uncertain": ["转录时没把握的地方，例如『指数 2 与 3 分不清』；没有就给空数组"]
 }"""
+
+
+def clean_extracted_stem(text: str) -> str:
+    """把模型转录结果清理成「能直接交给 KaTeX」的题干。
+
+    为什么要在服务端再洗一遍（提示词里已经写了要求）：
+      · 模型偶尔还是会把整体包进 ```json / ```latex 围栏；
+      · 偶尔写成 \\( ... \\) / \\[ ... \\] 这种定界 —— 前端只认 $ 与 $$，
+        不统一就会被当成普通文字，用户看到的正是「题目里带着数学代码」；
+      · 偶尔混进 <br>、&nbsp;、**加粗** 这类标记，KaTeX 与题干都不需要它们。
+    这里只做**无损清理**：不猜内容、不改数字，洗不掉的东西原样留着。
+    """
+    s = str(text or "").replace("\r\n", "\n").strip()
+    if not s:
+        return ""
+    # 1) 去掉整体/局部的 markdown 代码围栏
+    s = re.sub(r"```[a-zA-Z]*\s*", "", s)
+    # 2) 统一公式定界：\( \) → $ $，\[ \] → $$ $$
+    s = re.sub(r"\\\[(.*?)\\\]", lambda m: "$$" + m.group(1).strip() + "$$", s, flags=re.S)
+    s = re.sub(r"\\\((.*?)\\\)", lambda m: "$" + m.group(1).strip() + "$", s, flags=re.S)
+    # 3) 去掉 HTML 标记与常见实体（题干不需要它们）
+    s = re.sub(r"<br\s*/?>", "\n", s, flags=re.I)
+    s = re.sub(r"</?(div|p|span|b|i|em|strong|ul|ol|li)[^>]*>", "", s, flags=re.I)
+    s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    # 4) 去掉 markdown 加粗/斜体标记（保留 * 号本身可能出现在数学里，所以只处理成对的）
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    # 5) 没闭合的 \begin{env}：直接删掉这个半截命令，别让 KaTeX 整个式子报错
+    opens = re.findall(r"\\begin\{([a-zA-Z*]+)\}", s)
+    closes = re.findall(r"\\end\{([a-zA-Z*]+)\}", s)
+    for env in set(opens):
+        if opens.count(env) != closes.count(env):
+            s = s.replace("\\begin{%s}" % env, "")
+    # 6) 连续空行压一压
+    s = re.sub(r"\n{3,}", "\n\n", s)
+    return s.strip()
 
 
 def build_extract_prompt(hint_subject: str = "", hint_topic: str = "", marker: dict | None = None) -> str:
@@ -638,7 +681,7 @@ def extract_from_image(image_data: str, *, hint_subject: str = "", hint_topic: s
     if not isinstance(d, dict):
         raise AIError("识图返回的 JSON 不是对象")
 
-    stem = normalize_math_delims(str(d.get("stem") or "").strip())
+    stem = normalize_math_delims(clean_extracted_stem(str(d.get("stem") or "")))
     if not stem:
         raise AIError("没能从这张照片里认出题干文字。换一张更清晰、只拍题干的照片再试")
 

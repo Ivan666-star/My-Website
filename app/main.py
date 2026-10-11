@@ -20,7 +20,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, db, jobs, scheduler, seed, users
+from . import auth, db, jobs, notes, scheduler, seed, users
 from .ai.pipeline import (
     AIError,
     analyze_exam_paper,
@@ -32,6 +32,7 @@ from .ai.pipeline import (
     generate_daily,
     grade_submission,
     label_materials,
+    lookup_word,
     rule_fill_blank_genres,
     save_material,
     story_bundle,
@@ -840,12 +841,33 @@ def api_favorite_delete(fid: int):
 # ============================================================
 # 复习（间隔重复）
 # ============================================================
+def _merged_review_stats() -> dict:
+    """素材库 + 阅读笔记 合并后的复习概览（用户要求：积累的东西都要能不断复现）。"""
+    a = db.review_stats()
+    b = notes.notes_stats()
+    return {
+        "due": (a.get("due") or 0) + (b.get("due") or 0),
+        "in_cycle": (a.get("in_cycle") or 0) + (b.get("in_cycle") or 0),
+        "mastered": (a.get("mastered") or 0) + (b.get("mastered") or 0),
+        "total": (a.get("total") or 0) + (b.get("total") or 0),
+        "fav": a,
+        "note": b,
+        "today": a.get("today") or db.today_str(),
+    }
+
+
 @app.get("/api/review/due")
 def api_review_due():
-    """今天该复习的素材 + 复习进度概览。"""
+    """今天该复习的内容：素材库条目 + 阅读笔记，合成一条队列。
+
+    用户口径（2026-10-11）：高亮进阅读笔记的东西「不能只是这次看了就过去了，
+    要能够不断复现记住」，所以笔记和收藏共用同一套 1→2→4→7→15→30→60 天阶梯。
+    """
+    items = db.review_due() + notes.notes_review_due()
+    items.sort(key=lambda r: (r.get("next_review") or "9999", r.get("src") or "fav", r.get("id") or 0))
     return {
-        "items": db.review_due(),
-        "stats": db.review_stats(),
+        "items": items,
+        "stats": _merged_review_stats(),
         "intervals": db.REVIEW_INTERVALS,
         "mastered_at": db.MASTERED_AT,
     }
@@ -856,10 +878,134 @@ def api_review_result(fid: int, payload: dict = Body(...)):
     result = (payload.get("result") or "").strip()
     if result not in ("known", "forgot", "skip", "drop", "readd"):
         raise HTTPException(400, "未知的复习结果")
-    row = db.review_apply(fid, result)
-    if row is None:
-        raise HTTPException(404, "素材不存在")
-    return {"ok": True, "item": row, "stats": db.review_stats()}
+    src = (payload.get("src") or "fav").strip()
+    if src == "note":
+        row = notes.notes_apply_review(fid, result)
+        if row is None:
+            raise HTTPException(404, "这条阅读笔记不存在")
+    else:
+        row = db.review_apply(fid, result)
+        if row is None:
+            raise HTTPException(404, "素材不存在")
+    return {"ok": True, "item": row, "stats": _merged_review_stats()}
+
+
+# ============================================================
+# 阅读笔记（划线填充高亮 → 自动入库）+ 语法积累库 + 双击查词
+# 用户 2026-10-11 的要求，逐条对应见 app/notes.py 顶部注释。
+# ============================================================
+@app.post("/api/notes")
+def api_note_add(payload: dict = Body(...)):
+    """划线高亮 → 记一条阅读笔记（同篇同内容只记一次），并自动进入复习节奏。"""
+    content = (payload.get("content") or "").strip()
+    if not content:
+        raise HTTPException(400, "没有选中内容")
+    if len(content) > 500:
+        raise HTTPException(400, "一次选得太长了，划线记句子片段更合适")
+    art = db.get_article_by_date(payload.get("date") or db.today_str())
+    try:
+        row = notes.add_note(
+            content,
+            cn=payload.get("cn") or "",
+            kind=payload.get("kind") or ("phrase" if " " in content.strip() else "vocab"),
+            color=payload.get("color") or "yellow",
+            context=payload.get("context") or "",
+            note=payload.get("note") or "",
+            article_id=art["id"] if art else None,
+            doc_date=payload.get("date") or (art["date"] if art else db.today_str()),
+            para_index=int(payload["para"]) if payload.get("para") is not None else None,
+            char_start=int(payload["start"]) if payload.get("start") is not None else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "note": row, "created": bool(row.get("created")),
+            "stats": notes.notes_stats()}
+
+
+@app.get("/api/notes")
+def api_notes(limit: int = 300, kind: str | None = None, q: str = ""):
+    return {
+        "items": notes.list_notes(limit=limit, kind=kind or None, q=q or ""),
+        "stats": notes.notes_stats(),
+        "kinds": list(notes.KINDS),
+        "colors": list(notes.COLORS),
+    }
+
+
+@app.get("/api/notes/article/{article_id}")
+def api_notes_for_article(article_id: int):
+    return {"items": notes.notes_for_article(article_id)}
+
+
+@app.patch("/api/notes/{nid}")
+def api_note_patch(nid: int, payload: dict = Body(default={})):
+    row = notes.update_note(
+        nid,
+        cn=payload.get("cn"),
+        note=payload.get("note"),
+        color=payload.get("color"),
+    )
+    if not row:
+        raise HTTPException(404, "这条阅读笔记不存在")
+    return {"ok": True, "note": row}
+
+
+@app.delete("/api/notes/{nid}")
+def api_note_delete(nid: int):
+    if not notes.delete_note(nid):
+        raise HTTPException(404, "这条阅读笔记不存在")
+    return {"ok": True, "stats": notes.notes_stats()}
+
+
+@app.post("/api/notes/{nid}/enrich")
+def api_note_enrich(nid: int):
+    """给一条笔记补中文意思（双击查词的结果回填到笔记上）。"""
+    row = None
+    for it in notes.list_notes(limit=1000):
+        if int(it["id"]) == int(nid):
+            row = it
+            break
+    if not row:
+        raise HTTPException(404, "这条阅读笔记不存在")
+    try:
+        look = lookup_word(row["content"], row.get("context") or "")
+    except AIError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    upd = notes.update_note(nid, cn=look.get("cn") or look.get("in_context") or "")
+    return {"ok": True, "note": upd, "lookup": look}
+
+
+@app.post("/api/word/lookup")
+def api_word_lookup(payload: dict = Body(...)):
+    """双击单词/短语 → 中文意思（短调用，结果进程内缓存）。"""
+    try:
+        return {"ok": True, **lookup_word(payload.get("word") or "", payload.get("context") or "")}
+    except AIError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+@app.post("/api/grammar/save")
+def api_grammar_save(payload: dict = Body(...)):
+    """把一个语法点收进独立的语法积累库（跨文章攒，带同一个复习阶梯）。"""
+    art = db.get_article_by_date(payload.get("date") or db.today_str())
+    try:
+        row = notes.save_grammar_point(
+            payload.get("name") or "",
+            explanation=payload.get("explanation") or "",
+            pattern=payload.get("pattern") or "",
+            example=payload.get("example") or "",
+            category=payload.get("category") or "",
+            article_id=art["id"] if art else None,
+            doc_date=payload.get("date") or (art["date"] if art else ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"ok": True, "item": row, "created": bool(row.get("created"))}
+
+
+@app.get("/api/grammar/library")
+def api_grammar_library(limit: int = 300):
+    return {"items": notes.grammar_library(limit=limit)}
 
 
 # ============================================================
