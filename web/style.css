@@ -1119,6 +1119,16 @@ body.pen-on{padding-bottom:calc(var(--penbar-h, 48px) + 26px + env(safe-area-ins
 .wp-ex{ color:var(--muted); font-style:italic; margin-top:4px }
 .word-pop-actions{ display:flex; gap:8px }
 
+/* 点已有高亮时就地弹出的操作条（误填充的撤销入口） */
+.hl-actions{
+  position:fixed; z-index:62; display:flex; align-items:center; gap:8px; flex-wrap:wrap;
+  padding:8px 10px; max-width:min(94vw, 560px);
+  background:var(--surface); border:1px solid var(--line-2); border-radius:12px;
+  box-shadow:0 8px 26px rgba(0,0,0,.18);
+}
+.hl-actions-tip{ font-size:12.5px; color:var(--muted) }
+.hl-actions-tip b{ color:var(--ink) }
+
 .note-list{ display:flex; flex-direction:column; gap:10px; margin-top:12px }
 .note-card{
   border:1px solid var(--line); border-left:4px solid #FFE86B; border-radius:var(--radius-sm);

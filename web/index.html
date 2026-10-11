@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png">
 <link rel="stylesheet" href="/static/katex/katex.min.css">
-<link rel="stylesheet" href="/static/style.css?v=20261011-notes2">
+<link rel="stylesheet" href="/static/style.css?v=20261011-notes3">
 </head>
 <body>
 
@@ -324,7 +324,16 @@
     <button class="hl-dot hl-pink" data-hl-color="pink" title="粉色"></button>
   </span>
   <button class="btn tiny primary" id="hlSave">填充并记入笔记</button>
+  <button class="btn tiny" id="hlUndo" hidden>取消刚才的填充</button>
   <button class="btn tiny" id="hlCancel">取消</button>
+</div>
+
+<!-- 点正文里已有的高亮 → 就地弹这一条（误填充的撤销入口） -->
+<div class="hl-actions" id="hlActions" hidden>
+  <span class="hl-actions-tip">「<b id="hlActName"></b>」</span>
+  <button class="btn tiny warnish" id="hlActRemove">取消填充</button>
+  <button class="btn tiny" id="hlActOpen">在笔记里看</button>
+  <button class="btn tiny" id="hlActClose">关闭</button>
 </div>
 
 <!-- 双击查词的小卡片 -->
@@ -342,7 +351,7 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="/static/katex/katex.min.js"></script>
-<script src="/static/notes.js?v=20261011-notes2"></script>
-<script src="/static/app.js?v=20261011-notes2"></script>
+<script src="/static/notes.js?v=20261011-notes3"></script>
+<script src="/static/app.js?v=20261011-notes3"></script>
 </body>
 </html>

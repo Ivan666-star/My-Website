@@ -1369,12 +1369,14 @@ function renderNotesPage() {
       <div class="lib-sum-item"><b>${(NOTES_CACHE.grammars || []).length}</b><span>语法积累</span></div>
     </div>
     <div class="hist-tabs">
-      <button class="hist-tab ${tab === "note" ? "on" : ""}" data-ntab="note">📝 阅读笔记</button>
-      <button class="hist-tab ${tab === "grammar" ? "on" : ""}" data-ntab="grammar">🧠 语法积累库</button>
+      <button class="hist-tab ${tab === "note" ? "on" : ""}" data-ntab="note">📝 阅读笔记（${(NOTES_CACHE.notes || []).length}）</button>
+      <button class="hist-tab ${tab === "grammar" ? "on" : ""}" data-ntab="grammar">🧠 语法积累库（${(NOTES_CACHE.grammars || []).length}）</button>
     </div>
     <p class="muted small" style="line-height:1.8">
       在文章里<b>划选</b>词句就会自动记到这里，第二天起进入「今日复习」，
       按 1 → 2 → 4 → 7 → 15 → 30 → 60 天不断复现。
+      <br><b>误填充了怎么办</b>：回到文章里点一下那段颜色，选「取消填充」即可；
+      刚填充完时工具条上也有「取消刚才的填充」。
     </p>`;
   const body = tab === "grammar" ? notesGrammarHtml() : notesListHtml();
   box.innerHTML = head + body;
@@ -1384,7 +1386,8 @@ function notesListHtml() {
   const items = NOTES_CACHE.notes || [];
   if (!items.length) {
     return `<p class="center muted" style="margin:26px 0">还没有阅读笔记。<br>
-      回到文章里选中一个词或一句话，点「填充并记入笔记」就会出现在这里。</p>`;
+      回到文章里选中一个词或一句话，点「填充并记入笔记」就会出现在这里。<br>
+      <span class="small">（误填充了？在文章里点一下那段高亮，就能取消。）</span></p>`;
   }
   return `<div class="note-list">` + items.map(n => `
     <div class="note-card hl-${esc(n.color || "yellow")}" data-note-id="${n.id}">
