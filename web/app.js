@@ -121,6 +121,22 @@ async function boot() {
   resumePendingJob();
 }
 
+/* ------------------------------------------------------------
+  给 notes.js 留的三个接口
+  ------------------------------------------------------------
+  app.js 里的 state / toast / api 都是**模块作用域**，别的文件看不见。
+  notes.js 需要知道「当前是哪一天、哪篇文章」才能把高亮画到正确的位置、
+  写进正确的笔记；也需要复用同一个 toast 与同一个 api 封装（带错误处理）。
+  这里显式挂三个引用出去 —— 别再让 notes.js 去猜 window.state 存在不存在：
+  那个 bug 的具体表现是「填充成功、后端也落库了，但正文上没上色」，
+  排查起来很费劲，所以宁可留这一小段显式桥接。 */
+window.PrismApp = {
+  get state() { return state; },
+  toast: (msg, bad) => toast(msg, bad),
+  api: (path, opts) => api(path, opts),
+  navigate: v => navigate(v),
+};
+
 function renderMeta(data) {
   $("#topDate").textContent = dateLabel(data.date);
   $("#streakNum").textContent = data.meta.streak || 0;

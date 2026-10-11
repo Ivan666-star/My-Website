@@ -28,12 +28,20 @@
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;").replace(/'/g, "&#x27;");
 
+  /* app.js 里的 state / toast / api / navigate 都是模块作用域，看不见；
+     它显式挂在 window.PrismApp 上（见 app.js 里那段「给 notes.js 留的三个接口」）。
+     ⚠️ 千万别再写成 window.state —— app.js 从来没有把 state 挂到 window 上，
+     那会导致「填充成功、后端也落库了，但正文上就是不上色」。 */
+  const bridge = () => window.PrismApp || {};
+
   function toast(msg, bad) {
-    if (window.toast) return window.toast(msg, bad);
+    const fn = bridge().toast;
+    if (fn) return fn(msg, bad);
     console.log("[notes]", msg);
   }
   async function api(path, opts) {
-    if (window.api) return window.api(path, opts);
+    const fn = bridge().api;
+    if (fn) return fn(path, opts);
     const r = await fetch(path, {
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
@@ -43,8 +51,12 @@
     if (!r.ok) throw new Error(data.detail || `请求失败（${r.status}）`);
     return data;
   }
+  function appState() {
+    const s = bridge().state;
+    return s || window.state || {};
+  }
   function currentDate() {
-    return (window.state && window.state.date) || "";
+    return appState().date || "";
   }
 
   /* ---------------- 段落与偏移：高亮要能精确画回去 ---------------- */
@@ -269,7 +281,7 @@
       /* 点正文里已有的高亮 → 打开笔记页对应条目（简单起见：跳到笔记页） */
       const marked = e.target.closest("[data-note]");
       if (marked) {
-        if (window.navigate) window.navigate("notes");
+        if (bridge().navigate) bridge().navigate("notes");
         return;
       }
       if (!e.target.closest("#hlBar") && !e.target.closest("#wordPop")) {
@@ -282,7 +294,7 @@
 
   async function saveHighlight() {
     if (!pending) { toast("先选中要填充的词或句子", true); return; }
-    const st = window.state || {};
+    const st = appState();
     const art = st.bundle && st.bundle.article;
     const btn = $("#hlSave");
     btn.disabled = true;
@@ -310,7 +322,7 @@
   async function saveFromPop() {
     if (!popWord) return;
     const cn = ($("#wpBody").querySelector(".wp-cn") || {}).textContent || "";
-    const st = window.state || {};
+    const st = appState();
     const art = st.bundle && st.bundle.article;
     try {
       const r = await api("/api/notes", {

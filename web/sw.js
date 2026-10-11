@@ -1,6 +1,6 @@
 /* 极简 Service Worker：只缓存静态资源，接口一律走网络，避免拿到过期内容。 */
-const CACHE = "prism-v18";
-const ASSETS = ["/", "/static/style.css?v=20261011-notes1", "/static/app.js?v=20261011-notes1", "/static/notes.js?v=20261011-notes1", "/manifest.webmanifest",
+const CACHE = "prism-v19";
+const ASSETS = ["/", "/static/style.css?v=20261011-notes2", "/static/app.js?v=20261011-notes2", "/static/notes.js?v=20261011-notes2", "/manifest.webmanifest",
                 "/favicon.ico", "/static/icons/mark.png", "/static/icons/icon-192.png",
                 "/static/katex/katex.min.css", "/static/katex/katex.min.js"];
 
