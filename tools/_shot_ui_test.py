@@ -314,12 +314,6 @@ try:
     else:
         print("  （上传测量跳过：无头环境没等到 #mathPhoto —— 浏览器内的这一项没测成，"
               "已用「发布参数核对」替代）")
-    ok = True
-    print("\n=== 断言 ===")
-    for name, passed, detail in checks:
-        print(f"  [{'OK ' if passed else 'FAIL'}] {name}" + ("" if passed else f"   <- {detail}"))
-        ok = ok and passed
-
     sb = kv.get("sent_bytes")
     dims = kv.get("sent_dims")
     n = int(sb) if (sb and sb.isdigit()) else 0
