@@ -59,11 +59,14 @@ class OpenAICompatProvider(AIProvider):
 
     name = "openai-compatible"
 
-    def __init__(self, base_url: str, api_key: str, model: str, model_strong: str | None = None):
+    def __init__(self, base_url: str, api_key: str, model: str, model_strong: str | None = None,
+                 model_vision: str | None = None):
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
         self.model_strong = model_strong or model
+        # 识图单独一个型号（.env 里的 AI_MODEL_VISION）；留空就跟着 model 走
+        self.model_vision = model_vision or model
         self._client = httpx.Client(timeout=settings.ai_timeout)
 
     def _chat_messages(
@@ -174,7 +177,7 @@ class OpenAICompatProvider(AIProvider):
                     ],
                 },
             ],
-            model=self.model,
+            model=self.model_vision,
             temperature=temperature,
             max_tokens=max_tokens,
             retries=retries,
@@ -212,6 +215,7 @@ def get_provider() -> AIProvider:
                 settings.ai_api_key,
                 settings.ai_model,
                 settings.ai_model_strong,
+                settings.ai_model_vision,
             )
         else:
             _provider = NotConfiguredProvider()

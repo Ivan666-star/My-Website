@@ -17,6 +17,11 @@ class Settings:
         self.ai_model = os.getenv("AI_MODEL", "deepseek-chat").strip()
         # 质量敏感环节（长难句分析、作文批改）可用更强模型，留空则复用上面
         self.ai_model_strong = (os.getenv("AI_MODEL_STRONG") or "").strip() or self.ai_model
+        # 拍照识图（数学/信号错题）单独指定模型：留空则复用 ai_model。
+        # 为什么要单独一项：能识图的模型未必是最适合生成文章的，反过来也一样 ——
+        # 实测 deepseek-flash 能读图，而 deepseek-v4-pro / 旧的 deepseek-chat 会回
+        # 「无法读取图片」。以后接口里出现更强的视觉模型，改这一行即可，不用动代码。
+        self.ai_model_vision = (os.getenv("AI_MODEL_VISION") or "").strip() or self.ai_model
         self.ai_timeout = int(os.getenv("AI_TIMEOUT", "240"))
         self.ai_temperature = float(os.getenv("AI_TEMPERATURE", "0.8"))
 

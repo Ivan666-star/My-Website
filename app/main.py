@@ -1090,6 +1090,10 @@ def api_health():
         "today": db.today_str(),
         "has_today": has_today,
         "ai_ready": settings.ai_ready,
+        # 识图用的是哪个型号，一起报出来：拍照录题不准时第一件事就是确认
+        # 这个型号到底支不支持读图（能读图的是 deepseek-flash 这类视觉模型）。
+        "ai_model": settings.ai_model,
+        "ai_model_vision": settings.ai_model_vision,
         "scheduler": scheduler.state(),
     }
 
