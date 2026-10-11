@@ -183,9 +183,15 @@ async function ready(w) {
     const gbtn = w2.document.querySelector("[data-gram-save]");
     if (gbtn) {
       gbtn.click();
-      await sleep(600);
-      const lib = await fetch("/api/grammar/library").then(r => r.json());
-      L("grammar=" + ((lib.items || []).length));
+      /* 轮询等库里有东西 —— 固定 sleep 一次会把「网络快慢」当成功能好坏 */
+      let got = 0;
+      for (let i = 0; i < 40; i++) {
+        await sleep(150);
+        const lib = await fetch("/api/grammar/library").then(r => r.json());
+        got = (lib.items || []).length;
+        if (got > 0) break;
+      }
+      L("grammar=" + got);
     } else {
       L("grammar=no-button");
     }
