@@ -114,6 +114,9 @@ async function boot() {
   } finally {
     $("#loadingState").hidden = true;
   }
+  /* 后台可能还有一次没跑完的生成（用户点了之后刷新/换设备回来了）——
+     接着把进度显示出来，别让他以为白点了。 */
+  resumePendingJob();
 }
 
 function renderMeta(data) {
@@ -746,6 +749,35 @@ $("#btnReveal").addEventListener("click", async () => {
 });
 
 /* ---------------- 生成 / 重新生成 ---------------- */
+/* 后台长任务：POST 只负责「开始」，真正跑完的进度靠轮询拿。
+   为什么不能直接 await 那个长请求：Cloudflare 对源站响应有 125 秒硬上限，
+   而生成一套内容要连续调 3 次模型（1～2 分钟），必然被掐断报 524 ——
+   更坑的是服务器其实还在跑并写进了库，用户却什么都看不到，只好再点一次。
+   每次轮询都是毫秒级请求，永远碰不到这条线。 */
+const JOB_POLL_MS = 2000;
+
+async function runJob(startPath, statusPath, body, onTick) {
+  await api(startPath, { method: "POST", body: JSON.stringify(body || {}) });
+  const t0 = Date.now();
+  for (;;) {
+    let st;
+    try {
+      st = await api(statusPath);
+    } catch (e) {
+      if (e.offline) throw new Error("网络断了，恢复后刷新页面就能看到结果");
+      throw e;
+    }
+    const sec = Math.floor((Date.now() - t0) / 1000);
+    if (onTick) onTick(st, sec);
+    if (!st.running) {
+      if (st.error) throw new Error(st.error);
+      if (st.result && st.result.bundle) return st.result;
+      throw new Error("任务结束了但没拿到内容，刷新页面看看");
+    }
+    await new Promise(r => setTimeout(r, JOB_POLL_MS));
+  }
+}
+
 let generating = false;
 async function generate(force) {
   if (generating) return;
@@ -755,11 +787,16 @@ async function generate(force) {
   }
   generating = true;
   const btns = [$("#btnGenToday"), $("#btnRegen")].filter(Boolean);
-  btns.forEach(b => { b.disabled = true; b.textContent = "生成中…（约 1～2 分钟）"; });
+  btns.forEach(b => { b.disabled = true; });
   $("#loadingState").hidden = false;
-  $("#loadingState").querySelector("p").textContent = "AI 正在为你准备今天的内容…";
+  const tipEl = $("#loadingState").querySelector("p");
+  tipEl.textContent = "AI 正在为你准备今天的内容…";
   try {
-    const r = await api("/api/generate", { method: "POST", body: JSON.stringify({ force }) });
+    const r = await runJob("/api/generate", "/api/generate/status", { force }, (st, sec) => {
+      const what = force ? "重新生成" : "生成";
+      tipEl.textContent = `AI 正在${what}今天的内容…已等待 ${sec} 秒（通常 1～2 分钟，可以先去别的页面，回来还在跑）`;
+      btns.forEach(b => { b.textContent = `生成中…${sec}s`; });
+    });
     state.bundle = r.bundle;
     state.meta.ai_ready = true;
     renderMeta({ date: r.article.date, meta: state.meta });
@@ -773,6 +810,34 @@ async function generate(force) {
     btns.forEach(b => { b.disabled = false; });
     $("#btnRegen").textContent = "重新生成今日内容";
     $("#btnGenToday").textContent = "生成今日内容";
+  }
+}
+
+/* 刷新页面 / 换设备回来时，如果后台还在跑，就接着显示进度 ——
+   不然用户会以为白点了。 */
+async function resumePendingJob() {
+  let st;
+  try { st = await api("/api/generate/status"); } catch { return; }
+  if (!st.running) return;
+  const btns = [$("#btnGenToday"), $("#btnRegen")].filter(Boolean);
+  btns.forEach(b => { b.disabled = true; b.textContent = "生成中…"; });
+  $("#loadingState").hidden = false;
+  const tipEl = $("#loadingState").querySelector("p");
+  try {
+    const r = await runJob("/api/generate", "/api/generate/status", {}, (s, sec) => {
+      tipEl.textContent = `AI 正在生成今天的内容…已等待 ${sec} 秒`;
+      btns.forEach(b => { b.textContent = `生成中…${sec}s`; });
+    });
+    state.bundle = r.bundle;
+    renderBundle(r.bundle);
+    toast("今日内容已生成");
+  } catch (e) {
+    toast(e.message, true);
+  } finally {
+    $("#loadingState").hidden = true;
+    btns.forEach(b => { b.disabled = false; });
+    if ($("#btnRegen")) $("#btnRegen").textContent = "重新生成今日内容";
+    if ($("#btnGenToday")) $("#btnGenToday").textContent = "生成今日内容";
   }
 }
 $("#btnGenToday").addEventListener("click", () => generate(false));
@@ -799,10 +864,9 @@ function openImport() {
     const btn = $("#impGo");
     btn.disabled = true; btn.textContent = "AI 正在解析…";
     try {
-      const r = await api("/api/import", {
-        method: "POST",
-        body: JSON.stringify({ text, title: $("#impTitle").value.trim(), date: state.date }),
-      });
+      const r = await runJob("/api/import", "/api/import/status",
+        { text, title: $("#impTitle").value.trim(), date: state.date },
+        (st, sec) => { btn.textContent = `AI 正在解析…${sec}s`; });
       state.bundle = r.bundle;
       renderBundle(r.bundle);
       closeSheet();
@@ -958,10 +1022,9 @@ async function submitExamImport() {
   const btn = $("#expGo");
   btn.disabled = true; btn.textContent = "AI 正在按真题模式解析…";
   try {
-    const r = await api("/api/exam/import", {
-      method: "POST",
-      body: JSON.stringify({ text, year, slot, title: $("#expTitle").value.trim() }),
-    });
+    const r = await runJob("/api/exam/import", "/api/exam/import/status",
+      { text, year, slot, title: $("#expTitle").value.trim() },
+      (st, sec) => { btn.textContent = `AI 正在按真题模式解析…${sec}s`; });
     // 必须用 backToToday 而不是 closeSheet：
     // 这个表单是从「历史整页」里打开的，只关弹层的话内容会被渲染进隐藏的今日视图，
     // 用户只看到一个 toast，界面毫无反应。

@@ -20,7 +20,7 @@ from fastapi import Body, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, db, scheduler, seed, users
+from . import auth, db, jobs, scheduler, seed, users
 from .ai.pipeline import (
     AIError,
     analyze_exam_paper,
@@ -420,20 +420,30 @@ def get_article(date_str: str):
 
 @app.post("/api/generate")
 def api_generate(payload: dict = Body(default={})):
+    """开始生成当天的内容包。
+
+    ⚠️ 这里是**立刻返回**的：真正的生成（连续 3 次模型调用，1~2 分钟）放在后台线程里。
+    原因见 `app/jobs.py` 顶部注释 —— Cloudflare 对源站响应有 125 秒硬上限，
+    让手机用户干等这个长请求必然吃 524。
+    """
     d = payload.get("date") or db.today_str()
-    try:
-        row = generate_daily(
-            d,
-            topic=payload.get("topic") or None,
-            difficulty=int(payload["difficulty"]) if payload.get("difficulty") else None,
-            directives=payload.get("directives"),
-            force=bool(payload.get("force")),
-        )
-    except AIError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(500, f"生成失败：{exc}") from exc
-    return {"ok": True, "article": row, "bundle": story_bundle(row["id"])}
+    topic = payload.get("topic") or None
+    difficulty = int(payload["difficulty"]) if payload.get("difficulty") else None
+    directives = payload.get("directives")
+    force = bool(payload.get("force"))
+
+    def work():
+        row = generate_daily(d, topic=topic, difficulty=difficulty,
+                             directives=directives, force=force)
+        return {"ok": True, "article": row, "bundle": story_bundle(row["id"])}
+
+    return {"ok": True, "date": d, **jobs.start("generate", work, label="生成今日内容")}
+
+
+@app.get("/api/generate/status")
+def api_generate_status():
+    """查询后台生成进度；跑完时 result 里带着 article 与 bundle。"""
+    return {"ok": True, **jobs.status("generate")}
 
 
 @app.post("/api/article/{date_str}/label")
@@ -451,20 +461,26 @@ def api_label_materials(date_str: str):
 
 @app.post("/api/import")
 def api_import(payload: dict = Body(...)):
+    """粘贴真实外刊材料 → 整篇精读解析。同样走后台任务（多阶段 AI，会超过 125 秒）。"""
     text = (payload.get("text") or "").strip()
     if len(text) < 200:
         raise HTTPException(400, "正文太短，请粘贴完整文章（建议 300 词以上）")
-    try:
-        row = analyze_real_article(
-            text,
-            title=payload.get("title") or "",
-            source=payload.get("source") or "",
-            date_str=payload.get("date") or db.today_str(),
-            difficulty=int(payload["difficulty"]) if payload.get("difficulty") else None,
-        )
-    except AIError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    return {"ok": True, "article": row, "bundle": story_bundle(row["id"])}
+    title = payload.get("title") or ""
+    source = payload.get("source") or ""
+    d = payload.get("date") or db.today_str()
+    difficulty = int(payload["difficulty"]) if payload.get("difficulty") else None
+
+    def work():
+        row = analyze_real_article(text, title=title, source=source, date_str=d,
+                                   difficulty=difficulty)
+        return {"ok": True, "article": row, "bundle": story_bundle(row["id"])}
+
+    return {"ok": True, "date": d, **jobs.start("import", work, label="解析粘贴的材料")}
+
+
+@app.get("/api/import/status")
+def api_import_status():
+    return {"ok": True, **jobs.status("import")}
 
 
 # ============================================================
@@ -478,6 +494,7 @@ def api_import(payload: dict = Body(...)):
 # ============================================================
 @app.post("/api/exam/import")
 def api_exam_import(payload: dict = Body(...)):
+    """导入真题 → 完整拆解。同样走后台任务（多阶段 AI，会超过 125 秒）。"""
     text = (payload.get("text") or "").strip()
     if len(text) < 200:
         raise HTTPException(400, "正文太短，请粘贴完整的一篇真题文章")
@@ -490,15 +507,18 @@ def api_exam_import(payload: dict = Body(...)):
     slot = (payload.get("slot") or "").strip()
     if slot not in EXAM_SLOTS:
         raise HTTPException(400, "请选择篇目")
-    try:
-        row = analyze_exam_paper(
-            text, year=year, slot=slot, title=(payload.get("title") or "").strip()
-        )
-    except AIError as exc:
-        raise HTTPException(400, str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise HTTPException(500, f"真题解析失败：{exc}") from exc
-    return {"ok": True, "article": row, "bundle": story_bundle(row["id"])}
+    title = (payload.get("title") or "").strip()
+
+    def work():
+        row = analyze_exam_paper(text, year=year, slot=slot, title=title)
+        return {"ok": True, "article": row, "bundle": story_bundle(row["id"])}
+
+    return {"ok": True, **jobs.start("exam", work, label="解析导入的真题")}
+
+
+@app.get("/api/exam/import/status")
+def api_exam_import_status():
+    return {"ok": True, **jobs.status("exam")}
 
 
 @app.get("/api/exam/list")
