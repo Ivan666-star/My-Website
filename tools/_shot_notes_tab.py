@@ -31,7 +31,19 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-PORT = 8901
+def _free_port() -> int:
+    """取一个空闲端口。
+    ⚠️ 别写死端口：这几套测试会连着跑，前一个实例还没退干净时，
+    写死端口就会出现「临时实例没起来」这种假失败（踩过好几次）。"""
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+PORT = _free_port()
 BASE = f"http://127.0.0.1:{PORT}"
 TMP = Path(tempfile.mkdtemp(prefix="tabqa_"))
 
@@ -85,27 +97,51 @@ window.onerror = (m, s, l) => L("JSERR:" + m + "@" + l);
     L("tabs=" + tabs.length);
     L("tab_default_on=" + (doc.querySelector('#pageBody-notes [data-ntab="note"]').className.indexOf("on") >= 0 ? 1 : 0));
 
-    /* ---- 点「语法积累库」 ---- */
+    /* ---- 点「语法积累库」----
+       顺便量两件事（用户反馈「切换响应非常慢」）：
+         · switch_reqs：这一下有没有打网络请求（应该为 0，走本地缓存重绘）
+         · switch_sync_ms：点下去到界面换完的毫秒数（应该是 0，同步换完） */
+    let reqCount = 0;
+    const origFetch = w.fetch.bind(w);
+    w.fetch = function (u, o) {
+      const s = String(u);
+      if (s.indexOf("/api/notes") >= 0 || s.indexOf("/api/grammar") >= 0) reqCount++;
+      return origFetch(u, o);
+    };
     const g = doc.querySelector('#pageBody-notes [data-ntab="grammar"]');
+    const t0 = performance.now();
     g.click();
-    let swapped = 0, onG = 0, onN = 0;
-    for (let i = 0; i < 60; i++) {
+    const syncMs = Math.round(performance.now() - t0);
+    /* ⚠️ 必须**重新查一次**节点：renderNotesPage 会把整个容器重建，
+       上面拿到的 g 已经脱离文档了，读它的 className 永远是旧值。 */
+    const gAfter = doc.querySelector('#pageBody-notes [data-ntab="grammar"]');
+    const onGnow = gAfter && gAfter.className.indexOf("on") >= 0 ? 1 : 0;
+    const gramNow = (doc.querySelector("#pageBody-notes").textContent || "").indexOf("标签探针语法点") >= 0 ? 1 : 0;
+    L("switch_sync_ms=" + syncMs);
+    L("switch_instant=" + (onGnow && gramNow ? 1 : 0));
+    L("switch_reqs=" + reqCount);
+
+    let swapped = gramNow, onG = onGnow, onN = 0;
+    for (let i = 0; i < 60 && !swapped; i++) {
       await sleep(120);
       const gb = doc.querySelector('#pageBody-notes [data-ntab="grammar"]');
       const nb = doc.querySelector('#pageBody-notes [data-ntab="note"]');
       onG = gb && gb.className.indexOf("on") >= 0 ? 1 : 0;
       onN = nb && nb.className.indexOf("on") >= 0 ? 1 : 0;
       const txt = (doc.querySelector("#pageBody-notes") || {}).textContent || "";
-      /* 切到语法库的标志：页面上出现语法点名字 */
       if (txt.indexOf("标签探针语法点") >= 0) { swapped = 1; break; }
+    }
+    if (!onN) {
+      const nb = doc.querySelector('#pageBody-notes [data-ntab="note"]');
+      onN = nb && nb.className.indexOf("on") >= 0 ? 1 : 0;
     }
     L("switch_to_grammar=" + swapped);
     L("grammar_tab_on=" + onG); L("note_tab_on=" + onN);
 
     /* ---- 再点回「阅读笔记」 ---- */
     doc.querySelector('#pageBody-notes [data-ntab="note"]').click();
-    let back = 0;
-    for (let i = 0; i < 60; i++) {
+    let back = (doc.querySelector("#pageBody-notes").textContent || "").indexOf("tab probe note") >= 0 ? 1 : 0;
+    for (let i = 0; i < 60 && !back; i++) {
       await sleep(120);
       const txt = (doc.querySelector("#pageBody-notes") || {}).textContent || "";
       if (txt.indexOf("tab probe note") >= 0) { back = 1; break; }
@@ -241,6 +277,8 @@ try:
         ("切过去后高亮的是语法标签", kv.get("grammar_tab_on") == "1" and kv.get("note_tab_on") == "0",
          f"{kv.get('grammar_tab_on')} / {kv.get('note_tab_on')}"),
         ("能再切回阅读笔记", kv.get("switch_back") == "1", kv.get("switch_back")),
+        ("切换是同步完成的（无需等待网络）", kv.get("switch_instant") == "1", kv.get("switch_instant")),
+        ("切换没打接口（走本地缓存）", kv.get("switch_reqs") == "0", kv.get("switch_reqs")),
         ("填充成功", kv.get("undo_filled") == "1", kv.get("undo_filled")),
         ("填充后出现「取消刚才的填充」", kv.get("undo_btn_visible") == "1", kv.get("undo_btn_visible")),
         ("撤销后这篇的高亮被去掉", kw_after < kw_before, f"笔记数 {kw_before} -> {kw_after}"),

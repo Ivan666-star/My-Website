@@ -97,6 +97,93 @@ function hl(s) {
   return out;
 }
 
+/* ==========================================================
+   阅读外观：字号 / 行距 / 字体
+   ----------------------------------------------------------
+   用户 2026-10-11：「在英语里面 那个字体看久了眼睛会花 希望有可以涉及字体调节的方式」。
+   做法：三个 CSS 变量（--read-size / --read-lh / --read-font）写在 <html> 上，
+   中文翻译另有一套（--read-zh-*）。存 localStorage，**不上云**：
+   这是设备偏好（手机上想大一点、电脑上想小一点很正常），跟账号走反而不合适。
+   ========================================================== */
+const READING_KEY = "prism.reading.v1";
+const READING_PRESETS = {
+  size: [
+    { k: "s", label: "小", en: "17px", lh: "", zh: "13.5px" },
+    { k: "m", label: "标准", en: "18.5px", lh: "", zh: "14.5px" },
+    { k: "l", label: "大", en: "20.5px", lh: "", zh: "16px" },
+    { k: "xl", label: "特大", en: "22.5px", lh: "", zh: "17.5px" },
+    { k: "xxl", label: "超大", en: "25px", lh: "", zh: "19px" },
+  ],
+  lh: [
+    { k: "tight", label: "紧凑", v: "1.75" },
+    { k: "normal", label: "标准", v: "1.92" },
+    { k: "loose", label: "宽松", v: "2.15" },
+    { k: "xloose", label: "很宽", v: "2.4" },
+  ],
+  font: [
+    { k: "serif", label: "衬线（阅读感）", v: 'var(--serif)' },
+    { k: "sans", label: "无衬线（护眼清晰）", v: 'var(--sans)' },
+  ],
+};
+const READING_DEFAULT = { size: "m", lh: "normal", font: "serif" };
+
+const Reading = {
+  cfg: { ...READING_DEFAULT },
+  load() {
+    try {
+      const raw = localStorage.getItem(READING_KEY);
+      if (raw) this.cfg = { ...READING_DEFAULT, ...JSON.parse(raw) };
+    } catch (e) { this.cfg = { ...READING_DEFAULT }; }
+    this.apply();
+  },
+  save() {
+    try { localStorage.setItem(READING_KEY, JSON.stringify(this.cfg)); } catch (e) { /* 隐身模式等，忽略 */ }
+  },
+  set(key, val) {
+    this.cfg[key] = val;
+    this.save();
+    this.apply();
+  },
+  reset() {
+    this.cfg = { ...READING_DEFAULT };
+    this.save();
+    this.apply();
+  },
+  apply() {
+    const root = document.documentElement;
+    const sizeP = READING_PRESETS.size.find(x => x.k === this.cfg.size) || READING_PRESETS.size[1];
+    const lhP = READING_PRESETS.lh.find(x => x.k === this.cfg.lh) || READING_PRESETS.lh[1];
+    const fontP = READING_PRESETS.font.find(x => x.k === this.cfg.font) || READING_PRESETS.font[0];
+    root.style.setProperty("--read-size", sizeP.en);
+    root.style.setProperty("--read-lh", lhP.v);
+    root.style.setProperty("--read-zh-size", sizeP.zh);
+    /* 中文行距跟着英文走一档，但别太夸张（中文方块字密，行距过大反而断行难读） */
+    root.style.setProperty("--read-zh-lh", String(Math.min(2.1, Number(lhP.v) * 0.96)));
+    root.style.setProperty("--read-font", fontP.v);
+    /* 一旦用户动过，就把 data-read 打上：
+       style.css 里各档设备的 .body-text 默认值都写成 :root:not([data-read]) ...，
+       这样用户的选择永远压得住设备默认值。 */
+    root.setAttribute("data-read", this.cfg.font === "serif" && this.cfg.size === "m" && this.cfg.lh === "normal" ? "default" : "custom");
+  },
+  html() {
+    const seg = (name, items, cur) => `<div class="read-seg">${items.map(it =>
+      `<button data-read-set="${name}" data-read-val="${it.k}" class="${cur === it.k ? "on" : ""}">${it.label}</button>`
+    ).join("")}</div>`;
+    const sizeP = READING_PRESETS.size.find(x => x.k === this.cfg.size) || READING_PRESETS.size[1];
+    const lhP = READING_PRESETS.lh.find(x => x.k === this.cfg.lh) || READING_PRESETS.lh[1];
+    return `<div class="read-panel">
+      <div class="read-row"><span class="read-lbl">字号</span>${seg("size", READING_PRESETS.size, this.cfg.size)}</div>
+      <div class="read-row"><span class="read-lbl">行距</span>${seg("lh", READING_PRESETS.lh, this.cfg.lh)}
+        <button class="btn tiny read-reset" data-read-reset="1">恢复默认</button></div>
+      <div class="read-row"><span class="read-lbl">字体</span>${seg("font", READING_PRESETS.font, this.cfg.font)}</div>
+      <div class="read-preview">The designers of casinos understand this well: they create
+        environments in which rational impulses are turned against the decision-maker.<br>
+        <span style="font-family:var(--sans)">设计者很清楚这一点：他们营造出一种环境，让理性的冲动反过来对付决策者本身。</span></div>
+    </div>`;
+  },
+};
+Reading.load();
+
 /* ---------------- 启动 ---------------- */
 async function boot() {
   try {
@@ -485,6 +572,11 @@ $("#gramList").addEventListener("click", async e => {
       }),
     });
     btn.textContent = "★ 已在语法库";
+    /* 顺手把缓存里那份也补上：这样去笔记页时标签上的数量是对的，
+       而且「切标签走本地重绘」不会因为缓存没更新而显示旧数字。 */
+    if (r.created && r.item) {
+      NOTES_CACHE.grammars = [r.item, ...(NOTES_CACHE.grammars || [])];
+    }
     toast(r.created
       ? "已收进语法积累库，明天起会出现在今日复习里"
       : "这条语法点已经在库里了");
@@ -1108,6 +1200,23 @@ async function submitExamImport() {
   finally { btn.disabled = false; btn.textContent = "开始解析"; }
 }
 
+document.addEventListener("click", e => {
+  const set = e.target.closest("[data-read-set]");
+  if (set) {
+    Reading.set(set.dataset.readSet, set.dataset.readVal);
+    const box = $("#readPanel");
+    if (box) box.innerHTML = Reading.html();     // 重画一次，让选中态跟上
+    return;
+  }
+  if (e.target.closest("[data-read-reset]")) {
+    Reading.reset();
+    const box = $("#readPanel");
+    if (box) box.innerHTML = Reading.html();
+    toast("已恢复默认阅读外观");
+    return;
+  }
+});
+
 /* 历史与真题两个标签的点击都走这里。
    委托在 document 上，这样整页和弹层两个容器都能响应。 */
 document.addEventListener("click", e => {
@@ -1335,24 +1444,52 @@ function syncRevStats() {
    两件事放在同一页的两个标签下：都是「攒起来 + 每天复现」的东西。 */
 let NOTES_TAB = "note";
 
-async function loadNotes(tab) {
+async function loadNotes(tab, opts) {
   if (tab) NOTES_TAB = tab;
+  const force = !!(opts && opts.force);
   const { box, isCurrent } = pageLoadContext("notes");
   if (!box.innerHTML.trim()) box.innerHTML = `<p class="muted small">加载中…</p>`;
+  /* ⚠️ 切换标签**不能**再跑一遍网络请求。
+     用户 2026-10-11 反馈「切换这两个响应非常慢」：原因是每次点标签都重新拉
+     /api/notes + /api/grammar/library，而手机要从 Cloudflare 境外节点绕一圈回来，
+     一次就是几百毫秒到一秒多 —— 明明数据已经在本地的 NOTES_CACHE 里了。
+     所以：有缓存就先**立刻画出来**（切换是瞬时的），再在后台静默刷新一次。 */
+  const hasCache = (NOTES_CACHE.notes.length || NOTES_CACHE.grammars.length || NOTES_CACHE.loaded);
+  if (hasCache && !force) {
+    /* 进页面且已有缓存：先立刻画出来，再后台对一次服务端（保证别的地方改过也同步） */
+    renderNotesPage();
+    refreshNotesQuietly();
+    return;
+  }
   try {
     const [n, g] = await Promise.all([
       api("/api/notes?limit=300"),
       api("/api/grammar/library?limit=300"),
     ]);
     if (!isCurrent()) return;
-    NOTES_CACHE = { notes: n.items || [], grammars: g.items || [], stats: n.stats || {} };
+    NOTES_CACHE = { notes: n.items || [], grammars: g.items || [], stats: n.stats || {}, loaded: true };
     renderNotesPage();
   } catch (e) {
     if (isCurrent()) box.innerHTML = `<p class="muted small">${esc(e.message)}</p>`;
   }
 }
 
-let NOTES_CACHE = { notes: [], grammars: [], stats: {} };
+/* 后台静默刷新：拿到了就更新界面，没拿到就保持现在这样（不闪 loading、不报错打断） */
+let notesRefreshSeq = 0;
+async function refreshNotesQuietly() {
+  const seq = ++notesRefreshSeq;
+  try {
+    const [n, g] = await Promise.all([
+      api("/api/notes?limit=300"),
+      api("/api/grammar/library?limit=300"),
+    ]);
+    if (seq !== notesRefreshSeq || currentView !== "notes") return;
+    NOTES_CACHE = { notes: n.items || [], grammars: g.items || [], stats: n.stats || {}, loaded: true };
+    renderNotesPage();
+  } catch (e) { /* 静默：切标签失败不该弹错，用户下次进页面会再刷 */ }
+}
+
+let NOTES_CACHE = { notes: [], grammars: [], stats: {}, loaded: false };
 
 const NOTE_KIND_LABEL = { vocab: "单词", phrase: "短语", sentence: "句子", other: "其他" };
 
@@ -1431,7 +1568,16 @@ function notesGrammarHtml() {
 /* 笔记页里的按钮 */
 document.addEventListener("click", async e => {
   const t = e.target.closest("[data-ntab]");
-  if (t) { loadNotes(t.dataset.ntab); return; }
+  if (t) {
+    /* 切换标签走**纯本地重绘**（点下去 0 毫秒就换完），不打任何接口。
+       用户 2026-10-11 反馈「切换响应非常慢」：以前这里直接调 loadNotes()，
+       每次都拉两个接口，手机绕 Cloudflare 一圈就好几百毫秒。
+       数据在 NOTES_CACHE 里已经有了，进页面时刷过一次就够；
+       要再对一次服务端，由「进页面 / 增删之后」负责，不放在每次点标签上。 */
+    NOTES_TAB = t.dataset.ntab;
+    renderNotesPage();
+    return;
+  }
 
   const cn = e.target.closest("[data-note-cn]");
   if (cn) {
@@ -1836,6 +1982,16 @@ document.addEventListener("input", e => {
 /* ---------------- 设置 ---------------- */
 $("#btnLibrary").addEventListener("click", () => navigate("library"));
 $("#btnNotes").addEventListener("click", () => navigate("notes"));
+/* 阅读外观 Aa：在正文上方展开/收起，面板里的按钮走下面那个委托 */
+$("#btnRead").addEventListener("click", () => {
+  const box = $("#readPanel");
+  if (!box) return;
+  const willShow = box.hidden;
+  box.hidden = !willShow;
+  box.innerHTML = willShow ? Reading.html() : "";
+  $("#btnRead").classList.toggle("on", willShow);
+  if (willShow) box.scrollIntoView({ behavior: "smooth", block: "nearest" });
+});
 
 $("#btnSettings").addEventListener("click", async () => {
   openSheet("设置", `<p class="muted small">加载中…</p>`);
@@ -2783,6 +2939,15 @@ async function refreshMathBadge() {
     const d = await api("/api/math/review/due?module=math");
     setMathBadge((d.items || []).length);
   } catch { /* 未登录 / 服务抖动都不显示 */ }
+}
+
+/* 就地做完一道错题之后，把角标数字按本地列表同步一下。
+   为什么不重新请求：为了两个数字去拉整页（列表 + meta + due 三个接口），
+   在手机上就是一次明显的卡顿；而 MATH.due 已经是我们自己删过的最新状态了。 */
+function bumpMathDueCount() {
+  const n = (MATH.due || []).length;
+  setMathLibBadge(n);
+  if (MATH.module === "math") setMathBadge(n);
 }
 
 /* ==========================================================
@@ -3957,16 +4122,29 @@ document.addEventListener("click", async e => {
   }
   const dueResult = e.target.closest("[data-due-res]");
   if (dueResult) {
-    const id = Number(dueResult.closest("[data-due-id]").dataset.dueId);
+    const cardEl = dueResult.closest("[data-due-id]");
+    const id = Number(cardEl.dataset.dueId);
     const act = dueResult.dataset.dueRes;
     dueResult.disabled = true;
+    /* ⚠️ 这里**不能**再 loadMath()。
+       用户 2026-10-11 反馈：「选择做对了和没有做对以后 他就会直接跳开你当前的刷题
+       直接跳到题库里面去了 又需要重新往上翻」。原因就是这个整页重载：
+       MATH.due 重新拉一遍、整块面板重绘、滚动位置被打回顶部。
+       改成：把刚做完的这道**就地移除**，并保持滚动位置不动 ——
+       这样连续刷错题时，下一道会顶上来，你原地继续做就行。 */
+    const keepY = window.scrollY;
     try {
       await api(`/api/math/problems/${id}/result`, {
         method: "POST", body: JSON.stringify({ result: act }),
       });
       MATH.dueAnswers.delete(id);
+      MATH.due = (MATH.due || []).filter(x => Number(x.id) !== id);
       MATH.meta = null;
-      await loadMath();
+      renderDrill();
+      /* 就地移除后内容会变短，先把滚动位置补回去，避免「跳一下」 */
+      window.scrollTo({ top: Math.min(keepY, Math.max(0, document.body.scrollHeight - window.innerHeight)) });
+      /* 计数是本地推的：不为了两个数字去重拉整页 */
+      bumpMathDueCount();
       toast({ right: "做对了，下次间隔拉长", wrong: "没关系，明天再来一次", skip: "已推到明天",
               drop: "已移出复习周期" }[act] || "已记录");
     } catch (err) { toast(err.message, true); dueResult.disabled = false; }
@@ -3978,6 +4156,7 @@ document.addEventListener("click", async e => {
   if (res) {
     const act = res.dataset.mRes;
     res.disabled = true;
+    const drillId = MATH.drill && MATH.drill.id;
     try {
       await api(`/api/math/problems/${MATH.drill.id}/result`, {
         method: "POST", body: JSON.stringify({ result: act }),
@@ -3985,8 +4164,12 @@ document.addEventListener("click", async e => {
       toast({ right: "做对了，下次间隔拉长", wrong: "没关系，明天再来一次", skip: "已推到明天",
               drop: "已移出复习周期" }[act] || "已记录");
       MATH.drill = null; MATH.revealed = false;
+      MATH.dueAnswers.delete(drillId);
+      MATH.due = (MATH.due || []).filter(x => Number(x.id) !== Number(drillId));
       MATH.meta = null;
-      await loadMath();
+      /* 同样不整页重载：刷题面板就地收掉，你原来的位置（错题列表那一段）保持不动 */
+      renderDrill();
+      bumpMathDueCount();
     } catch (err) { toast(err.message, true); res.disabled = false; }
     return;
   }

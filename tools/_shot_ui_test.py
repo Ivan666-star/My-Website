@@ -37,7 +37,19 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
 CHROME = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
-PORT = 8899
+def _free_port() -> int:
+    """取一个空闲端口。
+    ⚠️ 别写死端口：这几套测试会连着跑，前一个实例还没退干净时，
+    写死端口就会出现「临时实例没起来」这种假失败（踩过好几次）。"""
+    import socket
+    s = socket.socket()
+    s.bind(("127.0.0.1", 0))
+    p = s.getsockname()[1]
+    s.close()
+    return p
+
+
+PORT = _free_port()
 BASE = f"http://127.0.0.1:{PORT}"
 TMP = Path(tempfile.mkdtemp(prefix="uitest_"))
 

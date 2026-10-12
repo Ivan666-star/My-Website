@@ -29,6 +29,17 @@
   --penbar-h:48px;   /* 批注工具栏高度，同样由 pen.js 实测后覆盖 */
   --serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,"Times New Roman",serif;
   --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+  /* ---- 阅读外观（用户 2026-10-11：「字体看久了眼睛会花」）----
+     这三个变量由「Aa 阅读外观」面板改写，并存在浏览器本地（见 app.js 的 Reading）。
+     默认值 = 原来的写法，所以没调过的人看到的一模一样，不会突兀。
+     --read-* 只作用于**正文与长文**，不动按钮/角标那种小字，
+     否则整页尺寸会跟着乱掉。 */
+  --read-size:18.5px;      /* 正文英文 */
+  --read-lh:1.92;          /* 正文行高 */
+  --read-zh-size:14.5px;   /* 中文翻译 */
+  --read-zh-lh:1.85;
+  --read-font:var(--serif);/* 正文字体族：衬线 / 无衬线二选一 */
+  --read-bold:.6px;        /* 衬线字重补偿：无衬线时不需要 */
 }
 
 @media (prefers-color-scheme: dark){
@@ -133,7 +144,8 @@ main{
 }
 .reading-hint .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);flex:none}
 .reading-hint .timer{margin-left:auto; font-variant-numeric:tabular-nums; color:var(--ink-2)}
-.body-text{font-family:var(--serif); font-size:18.5px; line-height:1.92; color:var(--ink)}
+.body-text{font-family:var(--read-font); font-size:var(--read-size); line-height:var(--read-lh); color:var(--ink);
+  letter-spacing:.003em}
 .body-text p{margin:0 0 1.1em}
 .body-text p:last-child{margin-bottom:0}
 body.hide-body .body-text{filter:blur(5px); opacity:.35; pointer-events:none; transition:.3s}
@@ -186,8 +198,8 @@ details.acc[open]>summary{border-bottom:1px solid var(--line)}
 /* ---------- 翻译 ---------- */
 .trans-item{padding:12px 0; border-bottom:1px dashed var(--line)}
 .trans-item:last-child{border-bottom:0; padding-bottom:0}
-.trans-en{font-family:var(--serif); font-size:15.5px; line-height:1.7; color:var(--ink-2); margin-bottom:7px}
-.trans-zh{font-size:14.5px; line-height:1.85; color:var(--ink)}
+.trans-en{font-family:var(--read-font); font-size:15.5px; line-height:1.7; color:var(--ink-2); margin-bottom:7px}
+.trans-zh{font-size:var(--read-zh-size); line-height:var(--read-zh-lh); color:var(--ink)}
 .trans-note{
   margin-top:8px; font-size:13px; line-height:1.7; color:var(--muted);
   background:var(--paper-2); border-radius:9px; padding:8px 11px;
@@ -991,7 +1003,7 @@ body.pen-on{padding-bottom:calc(var(--penbar-h, 48px) + 26px + env(safe-area-ins
   .hero-title{font-size:27px}
   .card{padding:16px}
   .hero{padding:20px 16px}
-  .body-text{font-size:18px; line-height:1.9}
+  :root:not([data-read]) .body-text{font-size:18px; line-height:1.9}   /* 各档设备的**默认**；用户调过就以他的为准 */
   .lib-summary{grid-template-columns:repeat(2,minmax(0,1fr))}
   .mat-auto{margin-left:0}
 
@@ -1006,7 +1018,7 @@ body.pen-on{padding-bottom:calc(var(--penbar-h, 48px) + 26px + env(safe-area-ins
   .hero-title{font-size:25px}
   .card{padding:15px}
   .hero{padding:18px 15px}
-  .body-text{font-size:17.5px; line-height:1.85}
+  :root:not([data-read]) .body-text{font-size:17.5px; line-height:1.85}
 }
 
 /* ---------- 极小屏：品牌只留符号（375px 以下真的放不下文字了） ---------- */
@@ -1036,7 +1048,7 @@ body.pen-on{padding-bottom:calc(var(--penbar-h, 48px) + 26px + env(safe-area-ins
   main{padding-left:calc(18px + env(safe-area-inset-left, 0px))}
   main{padding-right:calc(18px + env(safe-area-inset-right, 0px))}
 
-  .body-text{font-size:19px; line-height:1.95}
+  :root:not([data-read]) .body-text{font-size:19px; line-height:1.95}
   .hero-title{font-size:32px}
   .hero{padding:24px 22px}
   .card{padding:22px; margin-bottom:16px}
@@ -1055,7 +1067,7 @@ body.pen-on{padding-bottom:calc(var(--penbar-h, 48px) + 26px + env(safe-area-ins
 @media (min-width:1200px){
   main{max-width:920px}
   .hero, #readingCard, .gate{max-width:768px; margin-left:auto; margin-right:auto}
-  .body-text{font-size:20px; line-height:1.95}
+  :root:not([data-read]) .body-text{font-size:20px; line-height:1.95}
   .hero-title{font-size:34px}
   .card{padding:24px; margin-bottom:18px}
   :root{--radius:20px}
@@ -1073,7 +1085,7 @@ body.pen-on{padding-bottom:calc(var(--penbar-h, 48px) + 26px + env(safe-area-ins
   .hero-meta{margin-bottom:5px}
   .hero-sub{margin-bottom:6px}
   .card{padding:14px}
-  .body-text{line-height:1.8}
+  :root:not([data-read]) .body-text{line-height:1.8}
 }
 
 /* ==========================================================
@@ -1128,6 +1140,33 @@ body.pen-on{padding-bottom:calc(var(--penbar-h, 48px) + 26px + env(safe-area-ins
 }
 .hl-actions-tip{ font-size:12.5px; color:var(--muted) }
 .hl-actions-tip b{ color:var(--ink) }
+
+/* ---------- 阅读外观面板（Aa）----------
+   用户 2026-10-11：「字体看久了眼睛会花，希望有可以设置字体调节的方式」。
+   面板本身用固定的 px，**不跟着 --read-size 变** —— 否则调大字号会把面板也撑大，
+   越调越乱。 */
+.read-panel{
+  margin:0 0 14px; padding:13px 14px;
+  background:var(--surface); border:1px solid var(--line-2); border-radius:14px;
+  box-shadow:var(--shadow);
+}
+.read-row{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px }
+.read-row:last-child{ margin-bottom:0 }
+.read-lbl{ font-size:12.5px; color:var(--muted); flex:0 0 auto; min-width:52px }
+.read-seg{ display:flex; gap:6px; flex-wrap:wrap }
+.read-seg button{
+  font-family:inherit; font-size:12.5px; font-weight:600; cursor:pointer;
+  padding:5px 11px; border-radius:9px; border:1px solid var(--line);
+  background:var(--paper-2); color:var(--ink-2); transition:.15s;
+}
+.read-seg button:hover{ border-color:var(--line-2) }
+.read-seg button.on{ background:var(--accent); border-color:var(--accent); color:#fff }
+.read-preview{
+  margin-top:11px; padding:11px 12px; border-radius:11px;
+  background:var(--paper-2); border:1px dashed var(--line-2);
+  font-family:var(--read-font); font-size:var(--read-size); line-height:var(--read-lh); color:var(--ink);
+}
+.read-reset{ margin-left:auto }
 
 .note-list{ display:flex; flex-direction:column; gap:10px; margin-top:12px }
 .note-card{

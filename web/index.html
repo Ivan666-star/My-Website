@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png">
 <link rel="stylesheet" href="/static/katex/katex.min.css">
-<link rel="stylesheet" href="/static/style.css?v=20261011-notes3">
+<link rel="stylesheet" href="/static/style.css?v=20261012-read1">
 </head>
 <body>
 
@@ -34,6 +34,7 @@
         <button class="icon-btn has-badge" id="btnSubjects" title="选择科目">🎓<span class="badge" id="mathBadge" hidden>0</span></button>
         <button class="icon-btn" id="btnLibrary" title="素材库">📚</button>
         <button class="icon-btn" id="btnNotes" title="阅读笔记 / 语法积累">📝</button>
+        <button class="icon-btn" id="btnRead" title="阅读外观：字号 / 行距 / 字体">Aa</button>
         <button class="icon-btn" id="btnStats" title="学习数据">📊</button>
         <button class="icon-btn" id="btnHistory" title="历史 / 真题">🗂</button>
       </div>
@@ -94,6 +95,8 @@
         <span>第一遍请独立阅读，先不看翻译与解析</span>
         <span class="timer" id="readTimer">00:00</span>
       </div>
+      <!-- 阅读外观面板：平时收着，点顶栏 Aa 展开（内容由 app.js 的 Reading.html() 生成） -->
+      <div id="readPanel" hidden></div>
       <div class="body-text" id="bodyText"></div>
     </article>
 
@@ -351,7 +354,7 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="/static/katex/katex.min.js"></script>
-<script src="/static/notes.js?v=20261011-notes3"></script>
-<script src="/static/app.js?v=20261011-notes3"></script>
+<script src="/static/notes.js?v=20261012-read1"></script>
+<script src="/static/app.js?v=20261012-read1"></script>
 </body>
 </html>
