@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png">
 <link rel="stylesheet" href="/static/katex/katex.min.css">
-<link rel="stylesheet" href="/static/style.css?v=20261012-read1">
+<link rel="stylesheet" href="/static/style.css?v=20261012-ans1">
 </head>
 <body>
 
@@ -133,16 +133,10 @@
         </div>
       </details>
 
-      <!-- 长难句 -->
-      <details class="acc card" id="accSent">
-        <summary><span class="ico">📐</span><span class="acc-title">今日长难句</span><span class="acc-sub" id="sentSub"></span></summary>
-        <div class="acc-body" id="sentList"></div>
-      </details>
-
-      <!-- 语法 -->
-      <details class="acc card" id="accGram">
-        <summary><span class="ico">🧠</span><span class="acc-title">今日语法</span><span class="acc-sub" id="gramSub"></span></summary>
-        <div class="acc-body" id="gramList"></div>
+      <!-- 长难句 + 语法（合并） -->
+      <details class="acc card" id="accSentGram">
+        <summary><span class="ico">📐</span><span class="acc-title">长难句与语法</span><span class="acc-sub" id="sentGramSub">闲时精读</span></summary>
+        <div class="acc-body" id="sentGramList"></div>
       </details>
 
       <!-- 阅读逻辑 / 命题视角：用户 2026-10-11 明确「暂时不需要」，先撤掉入口。
@@ -235,7 +229,9 @@
   <div class="page-body" id="pageBody-notes"></div>
 </section>
 
-<!-- 错题总库（数学一 + 信号与系统共用）：拍照 → 只取题干 → 确认分类 → 入错题库；先做题、后看解析。
+<!-- 错题总库（数学一 + 信号与系统共用）：拍照 → 只取题干 + 最终答案 → 确认分类 → 入错题库；
+     复习时题干和答案直接印在卡片上，自己做完点「会做了 / 不会做」两个键。
+     （2026-10-12 起不再生成解析，见 app.js 里 renderDrill 的说明。）
      标题由 app.js 按当前科目筛选动态改（错题总库 / 信号与系统 · 错题库）。 -->
 
 <section class="page" id="page-math" hidden>
@@ -354,7 +350,7 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="/static/katex/katex.min.js"></script>
-<script src="/static/notes.js?v=20261012-read1"></script>
-<script src="/static/app.js?v=20261012-read1"></script>
+<script src="/static/notes.js?v=20261012-ans1"></script>
+<script src="/static/app.js?v=20261012-ans1"></script>
 </body>
 </html>

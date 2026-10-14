@@ -258,6 +258,7 @@ def create_problem(
     image_path: str = "",
     source_note: str = "",
     image_data: str = "",
+    answer: str = "",
 ) -> dict:
     uid = db.require_user()
     stem = normalize_math_delims((stem or "").strip())
@@ -268,25 +269,29 @@ def create_problem(
     # 传了图片就顺手存下来（存不下来就拿调用方给的 image_path 兜底）
     if image_data:
         image_path = save_image(image_data, uid) or image_path
+    # 如果提取到答案，写进**独立的 answer 列**。
+    # ⚠️ 以前是拼成「答案：xxx」塞进 solution，和推荐解法混在一列里 —— 用户
+    # 2026-10-12 的口径是「只要最终答案，不要解析」，所以答案有自己的位置了。
+    answer = normalize_math_delims((answer or "").strip())
     # 首次复习 = 添加后 3 天（计划书第十四节的「第一次：3天后」）
     first = (date.today() + timedelta(days=REVIEW_INTERVALS[0])).isoformat()
     pid = db.execute(
-        "INSERT INTO math_problems (user_id, subject, kind, topic, stem, image_path, "
+        "INSERT INTO math_problems (user_id, subject, kind, topic, stem, answer, image_path, "
         "source_note, review_count, next_review, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?,0,?,datetime('now','localtime'),datetime('now','localtime'))",
-        (uid, subject, kind, topic, stem, image_path, source_note, first),
+        "VALUES (?,?,?,?,?,?,?,?,0,?,datetime('now','localtime'),datetime('now','localtime'))",
+        (uid, subject, kind, topic, stem, answer, image_path, source_note, first),
     )
     db.log_event("math_add", pid, {"subject": subject, "topic": topic, "kind": kind})
     return _row(_get(pid))  # type: ignore[return-value]
 
 
 _EDITABLE = {
-    "stem", "subject", "kind", "topic", "image_path", "source_note",
+    "stem", "subject", "kind", "topic", "image_path", "source_note", "answer",
     "knowledge", "solution", "alt_solution", "pitfalls",
 }
 
 # 这几个字段里可能带公式，写库前统一补一次 $ 定界符
-_TEXT_FIELDS = {"stem", "knowledge", "solution", "alt_solution", "pitfalls"}
+_TEXT_FIELDS = {"stem", "answer", "knowledge", "solution", "alt_solution", "pitfalls"}
 
 
 def update_problem(pid: int, payload: dict) -> dict | None:
@@ -574,10 +579,10 @@ def build_math_prompt(stem: str, subject: str = "", topic: str = "") -> str:
 # 实测：能识图的是 `deepseek-flash`；`deepseek-v4-pro` 和旧的 `deepseek-chat`
 # 都看不了图（会回「无法读取图片」），换模型时别把这条弄丢。
 # ============================================================
-EXTRACT_SYSTEM = """你是考研理科错题库（数学 / 信号与系统）的录题助手。给你一张题目照片，你要做两件事。
+EXTRACT_SYSTEM = """你是考研理科错题库（数学 / 信号与系统）的录题助手。给你一张题目照片，你要做三件事。
 
 【第一件：转录题干】
-1. 只转录**题干**。答案、解析、「解：」后面的内容、讲解、页码页眉，一律不要。
+1. 只转录**题干**。解析、「解：」后面的推导过程、讲解、页码页眉，一律不要。
 2. 如果用户给照片加了蓝色圆圈，圆圈标出的题号就是唯一目标。只转录这个题号开始的完整题干（包含下方续行、选项），到下一道同级题号或新章节标题为止；忽略照片中其他题和原有笔迹。不要把蓝圈转录进题干。
    没有蓝圈时，才取最完整、位置最靠上的一道；绝对不要合并多道题。
 3. **完整优先**：题干里的每一行、每一个条件、每一个小问「(1)(2)(3)」、每一个选项 (A)(B)(C)(D) 都要转录，一个都不许省。
@@ -586,7 +591,16 @@ EXTRACT_SYSTEM = """你是考研理科错题库（数学 / 信号与系统）的
    极限、积分、求和、矩阵、行列式、向量、分式都必须用 LaTeX 表达，不要用普通文字糊过去。
 5. 照片里看不清的字符用 □ 占位。**绝对不要猜、不要替它补条件、不要改数字**。
 6. 保留题号（如「7.」「(3)」），但不要额外加「题目：」这类前缀。
-7. 不要输出任何解释、不要解题、不要给思路。
+7. 不要输出任何解释、不要给思路、不要在**题干**里夹带解答过程。
+
+【第二件：给出最终答案】
+用户 2026-10-12 的要求：每道题只留**最终答案**，不要解析、不要步骤（他说解析太费时间）。
+- 照片里如果已经印着答案（通常在题目下方或旁边，标注「答案：」「解：」「Answer:」等），照抄它的**最终答案**。
+- 照片里**没有**答案时（这是最常见的：只拍了一道题），你要**自己把这道题解出来**，然后只给最终答案。
+- 无论哪种情况，都**只要最终答案**：不要步骤、不要推导、不要解释、不要思路、不要「由…可得…」这类话。
+- 选择题给选项字母（如「A」）；计算题给最终数值或表达式；证明题给结论。
+- 答案里的公式也用 LaTeX（$...$）。
+- 只有题目残缺、看不清导致确实做不出来时，才给空字符串。**不要因为「照片里没印答案」就给空**。
 
 【输出格式的硬要求】
 - 只输出一个 JSON 对象，前后不要任何说明文字。
@@ -594,13 +608,14 @@ EXTRACT_SYSTEM = """你是考研理科错题库（数学 / 信号与系统）的
 - 公式只用 $...$ 与 $$...$$ 两种定界，**不要**用 \\( \\) 或 \\[ \\]。
 - 每个 \\begin{...} 都必须有配对的 \\end{...}，不要写出没闭合的环境。
 
-【第二件：给出分类建议】
+【第三件：给出分类建议】
 按题意判断它属于哪个科目、哪个专题，以及更像历年考研真题还是普通练习。
 这只是建议，用户后面能改，所以拿不准就照实说。
 
 输出必须是**严格 JSON**，不要 markdown 代码围栏，不要任何解释性前后缀：
 {
   "stem": "题干原文（含 LaTeX）",
+  "answer": "最终答案（照片里没有就自己解出来；只给答案，不要过程）",
   "subject": "必须是给定清单里的一个科目；判断不出来给空字符串",
   "topic": "必须是该科目下列出的专题之一；判断不出来给空字符串",
   "kind": "exam=历年考研真题 / normal=普通练习题；拿不准给 normal",
@@ -685,6 +700,9 @@ def extract_from_image(image_data: str, *, hint_subject: str = "", hint_topic: s
     if not stem:
         raise AIError("没能从这张照片里认出题干文字。换一张更清晰、只拍题干的照片再试")
 
+    # 提取答案
+    answer = normalize_math_delims(str(d.get("answer") or "").strip())
+
     subject = str(d.get("subject") or "").strip()
     topic = str(d.get("topic") or "").strip()
     # 清单外的名词一律丢弃：宁可留空让用户自己选，也不往库里塞自创分类
@@ -703,6 +721,7 @@ def extract_from_image(image_data: str, *, hint_subject: str = "", hint_topic: s
 
     return {
         "stem": stem,
+        "answer": answer,
         "subject": subject,
         "topic": topic,
         "kind": kind,
@@ -766,6 +785,51 @@ def analyze(pid: int, *, use_ai: bool = True) -> dict | None:
         ),
     )
     db.log_event("math_analyze", int(pid), {"subject": subject, "topic": topic})
+    return _row(_get(pid))
+
+
+# 只算答案用的提示词：故意写得极短 —— 越短越快、越不容易跑偏去写解析。
+ANSWER_SYSTEM = """你是考研理科（数学一 / 信号与系统）的解题老师。
+给你一道题的题干，你要给出**最终答案**。
+
+硬要求：
+1. 只给最终答案。**不要步骤、不要推导、不要解释、不要思路、不要知识点、不要易错点**。
+2. 选择题只给选项字母（如 A）；填空题/计算题给最终数值或表达式；证明题给结论。
+3. 有多个小问时，按小问顺序给，形如「(1) …；(2) …」。
+4. 公式用 LaTeX：行内 $...$。不要用 \\( \\) 或 \\[ \\]。
+5. 只输出答案本身，不要任何前缀（不要写「答案：」）、不要 markdown 围栏。
+6. 题目残缺、条件不足、确实做不出来时，只输出一个空字符串。"""
+
+
+def fill_answer(pid: int) -> dict | None:
+    """给一道题补上「最终答案」（不生成解析）。失败抛 AIError。"""
+    row = _get(int(pid))
+    if not row:
+        return None
+    if not (row.get("stem") or "").strip():
+        raise AIError("这道题还没有题干，先补题干再取答案")
+    raw = get_provider().chat(
+        ANSWER_SYSTEM,
+        f"题干：\n{row['stem']}",
+        temperature=0.1,     # 求答案不需要发挥，越低越稳
+        max_tokens=1200,     # 只要一个答案，给多了反而容易被写成解析
+        retries=1,
+    )
+    ans = clean_extracted_stem(str(raw or "").strip())
+    ans = normalize_math_delims(ans)
+    # 模型偶尔还是会写成「答案：xxx」，把那层前缀剥掉
+    ans = re.sub(r"^\s*(最终答案|答案|answer)\s*[：:]\s*", "", ans, flags=re.I).strip()
+    # 保险：万一它还是贴了一大段推导，只留第一行（答案是短的）
+    if "\n" in ans and len(ans) > 120:
+        ans = ans.split("\n")[0].strip()
+    if not ans:
+        raise AIError("没能确定这道题的答案（题目可能不完整），可以自己把答案填进去")
+    db.execute(
+        "UPDATE math_problems SET answer=?, updated_at=datetime('now','localtime') "
+        "WHERE id=? AND user_id=?",
+        (ans, int(pid), db.require_user()),
+    )
+    db.log_event("math_answer_fill", int(pid), {})
     return _row(_get(pid))
 
 
@@ -856,6 +920,7 @@ def api_create(payload: dict = Body(...)):
             image_path=(payload.get("image_path") or "").strip(),
             source_note=(payload.get("source_note") or "").strip(),
             image_data=(payload.get("image") or "").strip(),
+            answer=(payload.get("answer") or "").strip(),      # 可以手填最终答案
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -893,6 +958,23 @@ def api_delete(pid: int):
 def api_analyze(pid: int):
     try:
         row = analyze(pid)
+    except AIError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    if not row:
+        raise HTTPException(404, "错题不存在")
+    return {"ok": True, "problem": row}
+
+
+@router.post("/problems/{pid}/answer")
+def api_answer(pid: int):
+    """只补「最终答案」—— 不生成解析。
+
+    给两类题用：① 老数据（那时候答案和解法混在一列）；
+    ② 手动录的题（没经过拍照识别，自然没有答案）。
+    单独一个接口、单独一段短提示词：比走 analyze 快得多，也便宜得多。
+    """
+    try:
+        row = fill_answer(pid)
     except AIError as exc:
         raise HTTPException(502, str(exc)) from exc
     if not row:

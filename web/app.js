@@ -376,8 +376,7 @@ function renderBundle(b) {
 
   renderTranslation(b);
   renderVocab(b.vocab || []);
-  renderSentences(b.sentences || []);
-  renderGrammar(b.grammar || []);
+  renderSentGram(b.sentences || [], b.grammar || []); // 合并长难句和语法
   /* 阅读逻辑 / 命题视角：用户 2026-10-11 说暂时不需要，入口已从 index.html 撤掉。
      两个函数仍保留（数据也还在库里），容器不存在时它们自己会安静跳过 ——
      以后想接回来，把 index.html 里那两块 <details> 加回去就行。 */
@@ -431,9 +430,9 @@ function renderVocab(list) {
         <span class="v-pos">${esc(v.pos || "")}</span>
         <span class="v-imp">考研重要度 ${"●".repeat(v.importance || 3)}${v.occurrence > 1 ? ` · 累计出现 ${v.occurrence} 次` : ""}</span>
       </div>
-      <div class="v-mean"><b>文中义：</b>${esc(v.meaning_in_context || v.cn_definition || "")}</div>
-      ${v.common_meanings ? `<div class="v-sub">常见义：${esc(v.common_meanings)}</div>` : ""}
-      ${v.exam_note ? `<div class="v-exam"><b>🎯 真题里怎么考：</b>${esc(v.exam_note)}</div>` : ""}
+      <div class="v-mean"><b>考研常考义：</b>${esc(v.meaning_in_context || v.cn_definition || "")}</div>
+      ${v.common_meanings ? `<div class="v-sub">其他高频义：${esc(v.common_meanings)}</div>` : ""}
+      ${v.exam_note ? `<div class="v-exam"><b>🎯 真题考法：</b>${esc(v.exam_note)}</div>` : ""}
       ${v.example ? `<div class="v-ex">${esc(v.example)}</div>` : ""}
       <div class="v-actions">
         <button class="btn tiny ${v.mastery === 1 ? "on" : ""}" data-act="unknown">不认识</button>
@@ -469,12 +468,22 @@ $("#vocabList").addEventListener("click", async e => {
   finally { if (isFav) { btn.disabled = false; btn.textContent = orig; } }
 });
 
-/* ---------------- 长难句 ---------------- */
-function renderSentences(list) {
-  $("#sentSub").textContent = `${list.length} 句`;
-  const box = $("#sentList");
-  if (!list.length) { box.innerHTML = `<p class="muted small">本篇暂无长难句条目</p>`; return; }
-  const rows = [
+/* ---------------- 长难句 + 语法（合并） ---------------- */
+function renderSentGram(sentList, gramList) {
+  const box = $("#sentGramList");
+  if (!box) return;
+
+  const sentCount = sentList.length;
+  const gramCount = gramList.length;
+  $("#sentGramSub").textContent = `${sentCount} 句长难句 · ${gramCount} 个语法点`;
+
+  if (!sentCount && !gramCount) {
+    box.innerHTML = `<p class="muted small">本篇暂无长难句和语法条目</p>`;
+    return;
+  }
+
+  // 长难句部分
+  const sentRows = [
     ["句子主干", s => s.skeleton, "en"],
     ["主句", s => s.main_clause, "en"],
     ["主语", s => s.subject],
@@ -485,24 +494,54 @@ function renderSentences(list) {
     ["同位语", s => s.appositive],
     ["逻辑关系", s => s.logic],
   ];
-  box.innerHTML = list.map((s, i) => `
-    <div class="s-item">
-      <div class="s-idx">SENTENCE ${i + 1}</div>
-      <div class="s-en">${esc(s.en)}</div>
-      <div class="s-zh">${esc(s.zh)}</div>
-      <button class="btn tiny s-toggle" data-toggle>展开成分分析 ↓</button>
-      <div class="s-detail" hidden>
-        ${rows.filter(([, f]) => f(s)).map(([k, f, cls]) =>
-          `<div class="s-row"><div class="s-key">${k}</div><div class="s-val ${cls || ""}">${esc(f(s))}</div></div>`).join("")}
-        ${(s.clauses || []).length ? `<div class="s-row"><div class="s-key">从句</div><div class="s-val"><ul class="s-list">${s.clauses.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div></div>` : ""}
-        ${(s.modifiers || []).length ? `<div class="s-row"><div class="s-key">修饰成分</div><div class="s-val"><ul class="s-list">${s.modifiers.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div></div>` : ""}
-        ${s.why_hard ? `<div class="s-why"><b>为什么值得学：</b>${esc(s.why_hard)}</div>` : ""}
-        <div class="w-actions"><button class="btn tiny" data-fav-sent="${i}" data-cn="长难句：${esc(s.zh).slice(0, 40)}">☆ 收藏这句</button></div>
-      </div>
-    </div>`).join("");
+
+  const sentHTML = sentCount ? `
+    <div class="sg-section">
+      <div class="sg-section-title">📐 长难句分析 (${sentCount})</div>
+      ${sentList.map((s, i) => `
+        <div class="s-item">
+          <div class="s-idx">SENTENCE ${i + 1}</div>
+          <div class="s-en">${esc(s.en)}</div>
+          <div class="s-zh">${esc(s.zh)}</div>
+          <button class="btn tiny s-toggle" data-toggle>展开成分分析 ↓</button>
+          <div class="s-detail" hidden>
+            ${sentRows.filter(([, f]) => f(s)).map(([k, f, cls]) =>
+              `<div class="s-row"><div class="s-key">${k}</div><div class="s-val ${cls || ""}">${esc(f(s))}</div></div>`).join("")}
+            ${(s.clauses || []).length ? `<div class="s-row"><div class="s-key">从句</div><div class="s-val"><ul class="s-list">${s.clauses.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div></div>` : ""}
+            ${(s.modifiers || []).length ? `<div class="s-row"><div class="s-key">修饰成分</div><div class="s-val"><ul class="s-list">${s.modifiers.map(c => `<li>${esc(c)}</li>`).join("")}</ul></div></div>` : ""}
+            ${s.why_hard ? `<div class="s-why"><b>为什么值得学：</b>${esc(s.why_hard)}</div>` : ""}
+            <div class="w-actions"><button class="btn tiny" data-fav-sent="${i}">☆ 收藏这句</button></div>
+          </div>
+        </div>`).join("")}
+    </div>
+  ` : "";
+
+  // 语法部分
+  const gramHTML = gramCount ? `
+    <div class="sg-section">
+      <div class="sg-section-title">🧠 语法知识点 (${gramCount})</div>
+      ${gramList.map((g, i) => {
+        const ex = (g.examples || [])[0] || "";
+        return `
+          <div class="g-item">
+            <div class="g-name">${esc(g.name)}<span class="g-cat">${esc(g.category || "句法")}</span></div>
+            <div class="g-text">${esc(g.explanation)}</div>
+            ${g.pattern ? `<div class="g-pattern">结构：${esc(g.pattern)}</div>` : ""}
+            ${ex ? `<div class="g-ex">${esc(ex)}</div>` : ""}
+            <div class="g-actions">
+              <button class="btn tiny" data-gram-save="${i}">＋ 收进语法积累库</button>
+            </div>
+          </div>`;
+      }).join("")}
+    </div>
+  ` : "";
+
+  box.innerHTML = sentHTML + gramHTML;
 }
 
-$("#sentList").addEventListener("click", async e => {
+// 长难句和语法的事件监听
+$("#sentGramList").addEventListener("click", async e => {
+  // 长难句展开/收起
   const tg = e.target.closest("[data-toggle]");
   if (tg) {
     const d = tg.parentElement.querySelector(".s-detail");
@@ -510,6 +549,8 @@ $("#sentList").addEventListener("click", async e => {
     tg.textContent = d.hidden ? "展开成分分析 ↓" : "收起 ↑";
     return;
   }
+
+  // 收藏长难句
   const fav = e.target.closest("[data-fav-sent]");
   if (fav) {
     const s = state.bundle.sentences[Number(fav.dataset.favSent)];
@@ -528,61 +569,34 @@ $("#sentList").addEventListener("click", async e => {
       refreshTodayStats();
     } catch (err) { toast(err.message, true); }
     finally { fav.disabled = false; fav.textContent = "★ 已收藏"; }
+    return;
   }
-});
 
-/* ---------------- 语法 ----------------
-   用户 2026-10-11 的两条要求：
-     · 「语法解释不用解释的太杂 只需要把重要的知识点解释出来就行 然后再举个例子」
-       → 提示词已改成「只讲一个知识点 + 只给一个例句」（见 app/ai/prompts.py），
-         前端也按这个口径收敛：解释一段、例句一条，不再堆 pattern 与多条例句。
-     · 「还应有单独的语法积累库」
-       → 每条右侧有「收进语法库」，进的是跨文章的独立库，且有复习阶梯。 */
-function renderGrammar(list, opts) {
-  $("#gramSub").textContent = `${list.length} 个`;
-  $("#gramList").innerHTML = list.length ? list.map((g, i) => {
-    const ex = (g.examples || [])[0] || "";
-    return `
-    <div class="g-item">
-      <div class="g-name">${esc(g.name)}<span class="g-cat">${esc(g.category || "句法")}</span></div>
-      <div class="g-text">${esc(g.explanation)}</div>
-      ${g.pattern ? `<div class="g-pattern">结构：${esc(g.pattern)}</div>` : ""}
-      ${ex ? `<div class="g-ex">${esc(ex)}</div>` : ""}
-      <div class="g-actions">
-        <button class="btn tiny" data-gram-save="${i}">＋ 收进语法积累库</button>
-      </div>
-    </div>`;
-  }).join("") : `<p class="muted small">本篇暂无语法条目</p>`;
-}
-
-/* 语法入库：跨文章攒同一个语法点，进独立的语法积累库并进入复习节奏 */
-$("#gramList").addEventListener("click", async e => {
+  // 收藏语法
   const btn = e.target.closest("[data-gram-save]");
-  if (!btn) return;
-  const g = (state.bundle.grammar || [])[Number(btn.dataset.gramSave)];
-  if (!g) return;
-  const art = state.bundle.article || {};
-  btn.disabled = true; btn.textContent = "收集中…";
-  try {
-    const r = await api("/api/grammar/save", {
-      method: "POST",
-      body: JSON.stringify({
-        name: g.name, explanation: g.explanation, pattern: g.pattern,
-        example: (g.examples || [])[0] || "", category: g.category, date: state.date,
-      }),
-    });
-    btn.textContent = "★ 已在语法库";
-    /* 顺手把缓存里那份也补上：这样去笔记页时标签上的数量是对的，
-       而且「切标签走本地重绘」不会因为缓存没更新而显示旧数字。 */
-    if (r.created && r.item) {
-      NOTES_CACHE.grammars = [r.item, ...(NOTES_CACHE.grammars || [])];
+  if (btn) {
+    const g = (state.bundle.grammar || [])[Number(btn.dataset.gramSave)];
+    if (!g) return;
+    btn.disabled = true; btn.textContent = "收集中…";
+    try {
+      const r = await api("/api/grammar/save", {
+        method: "POST",
+        body: JSON.stringify({
+          name: g.name, explanation: g.explanation, pattern: g.pattern,
+          example: (g.examples || [])[0] || "", category: g.category, date: state.date,
+        }),
+      });
+      btn.textContent = "★ 已在语法库";
+      if (r.created && r.item) {
+        NOTES_CACHE.grammars = [r.item, ...(NOTES_CACHE.grammars || [])];
+      }
+      toast(r.created
+        ? "已收进语法积累库（不会进入复习队列）"
+        : "这条语法点已经在库里了");
+    } catch (err) {
+      toast(err.message, true);
+      btn.disabled = false; btn.textContent = "＋ 收进语法积累库";
     }
-    toast(r.created
-      ? "已收进语法积累库，明天起会出现在今日复习里"
-      : "这条语法点已经在库里了");
-  } catch (err) {
-    toast(err.message, true);
-    btn.disabled = false; btn.textContent = "＋ 收进语法积累库";
   }
 });
 
@@ -2544,7 +2558,7 @@ syncMetrics();
    三条口径（用户明确要求，改之前先想清楚）：
      1. 录题 = 拍照 → **只取题干** → 人工确认分类 → 保存。
         题干是唯一必填项；原图是附带证据，存不下也不该卡住录题。
-     2. 刷题 = 先只看题干，点「我做完了」之后才给解析。
+     2. 刷题 = 题干 + 最终答案 + 「会做了 / 不会做」两个键（2026-10-12 起不再生成解析）。
      3. 复习 = 3 / 7 / 14 / 30 / 60 天阶梯；做错回到起点（次日再见）。
    ========================================================== */
 /* ==========================================================
@@ -2670,7 +2684,7 @@ function renderSubjects() {
      1. 录题 = 拍照 → **只取题干** → AI 归类 → 人工确认 → 保存。
         题干是唯一必填项；原图是附带证据，存不下也不该卡住录题。
         **一次可以放多张照片**，并发识别，别让人一张一张来。
-     2. 刷题 = 先只看题干，点「我做完了」之后才给解析。
+     2. 刷题 = 题干 + 最终答案 + 「会做了 / 不会做」两个键（2026-10-12 起不再生成解析）。
      3. 复习 = 3 / 7 / 14 / 30 / 60 天阶梯；做错回到起点（次日再见）。
      4. 公式**要能直接看懂**：用本地打包的 KaTeX 渲染，不许把 LaTeX 源码甩给用户。
    ========================================================== */
@@ -2685,6 +2699,7 @@ const MATH = {
   dueAnswers: new Map(), // 已揭示的到期题解析；未揭示前接口不返回解法
   f: { subject: "", topic: "", kind: "", q: "", cycle: "" },
   openId: null,          // 列表里展开了哪一道
+  editId: null,          // 正在就地改题干/答案的那道
   drafts: [],            // 录题草稿（可能有多张照片）
   draftSeq: 0,
   draftOpen: false,
@@ -2706,7 +2721,7 @@ const MATH = {
   editHistory: [],
   editOriginal: "",
   extractRunning: false,
-  drill: null,           // 正在刷的那道；未点「我做完了」时不含解析
+  drill: null,           // 正在刷的那道（2026-10-12 起：带最终答案，不带解析）
   revealed: false,
 };
 
@@ -2833,7 +2848,9 @@ function mathChips(it) {
   if (it.topic) parts.push(`<span class="chip">${esc(it.topic)}</span>`);
   parts.push(`<span class="chip${it.kind === "exam" ? " exam-chip" : ""}">${esc(it.kind_label || "")}</span>`);
   parts.push(mathStatusChip(it));
-  if (!it.analyzed) parts.push(`<span class="chip">未解析</span>`);
+  /* 原来这里挂的是「未解析」——那是要生成解析的年代留下的。
+     用户 2026-10-12 定了不要解析，所以现在值得提醒的是**缺答案**（缺了就没法对错）。 */
+  if (!String(it.answer || "").trim()) parts.push(`<span class="chip warn-chip">缺答案</span>`);
   return parts.join("");
 }
 
@@ -3066,44 +3083,51 @@ function mathCard(it) {
   const img = it.has_image
     ? `<img class="math-photo" src="/api/math/problems/${it.id}/image" alt="原题照片" loading="lazy">`
     : "";
+
+  /* 答案直接读 it.answer（独立列）。
+     ⚠️ 以前是从 solution 里正则抠「答案：」——那是把答案和解法混在一列时期的临时办法，
+     用户 2026-10-12 定了「只要最终答案、不要解析」，答案已经有自己的列了。 */
+  /* 就地编辑：改题干 / 改答案。
+   为什么必须有：答案是 AI 算出来的，偶尔会错（或者题目残缺算不出）。
+   如果只有「让 AI 算答案」而没有手改的入口，用户遇到错答案就卡住了。 */
+  if (MATH.editId === it.id) {
+    return `<div class="math-edit">
+      <label class="field"><span>最终答案（只要答案，不要过程）</span>
+        <input class="field-input" id="meAnswer" value="${esc(it.answer || "")}"
+          placeholder="例如：$x=2$ 或 A"></label>
+      <div class="math-actions">
+        <button class="btn tiny primary" data-m-edit-save="${it.id}">保存</button>
+        <button class="btn tiny" data-m-edit-cancel="1">取消</button>
+      </div>
+    </div>`;
+  }
+  const quickButtons = `
+    <div class="math-quick-btns">
+      <button class="btn small primary" data-m-quick="right" data-m-qid="${it.id}">✅ 会做了</button>
+      <button class="btn small warnish" data-m-quick="wrong" data-m-qid="${it.id}">❌ 不会做</button>
+    </div>`;
+
   return `
     <div class="card math-card${open ? " open" : ""}" data-m-id="${it.id}">
       <div class="math-chips">${mathChips(it)}</div>
       <div class="math-stem${open ? "" : " clamp"}" title="${esc(mathPlain(it.stem, 120))}">${mathMtex(it.stem)}</div>
       ${mathKpHtml(it)}
+      ${mathAnswerBlock(it)}
+      ${quickButtons}
       ${open ? img : ""}
-      ${open ? mathDetail(it) : ""}
       <div class="math-actions">
         <button class="btn tiny" data-m-toggle="${it.id}">${open ? "收起" : "展开"}</button>
         <button class="btn tiny" data-m-drill="${it.id}">刷这道</button>
-        ${it.analyzed ? "" : `<button class="btn tiny tonal" data-m-analyze="${it.id}">AI 解析</button>`}
+        <button class="btn tiny" data-m-edit="${it.id}">改题干 / 答案</button>
         <button class="btn tiny warnish" data-m-del="${it.id}">删除</button>
       </div>
     </div>`;
 }
 
-function mathDetail(it) {
-  if (!it.analyzed && !it.knowledge && !it.solution) {
-    return `<p class="muted small" style="margin-top:8px">还没有解析。可以用上方的「AI 解析」生成，
-      或者自己把思路写进去。</p>`;
-  }
-  const steps = (it.key_steps || []).map((s, i) =>
-    `<li><b>第 ${i + 1} 步</b> ${mathMtex(s)}</li>`).join("");
-  const solution = String(it.solution || "").trim();
-  const answerMatch = solution.match(/^答案[：:]\s*([^\n]+)(?:\n\s*\n|\n)?/);
-  const answer = answerMatch ? answerMatch[1].trim() : "";
-  const explanation = answerMatch ? solution.slice(answerMatch[0].length).trim() : solution;
-  return `
-    <div class="math-analysis">
-      ${answer ? `<div class="ma-row ma-answer"><b>答案</b><div>${mathMtex(answer)}</div></div>` : ""}
-      ${explanation ? `<div class="ma-row"><b>推荐解法</b><div>${mathMtex(explanation)}</div></div>` : ""}
-      ${steps ? `<div class="ma-row"><b>关键步骤</b><ol class="ma-steps">${steps}</ol></div>` : ""}
-      ${it.knowledge ? `<div class="ma-row"><b>知识点</b><div>${mathMtex(it.knowledge)}</div></div>` : ""}
-      ${it.alt_solution ? `<div class="ma-row"><b>另一种解法</b><div>${mathMtex(it.alt_solution)}</div></div>` : ""}
-      ${it.pitfalls ? `<div class="ma-row"><b>易错点</b><div>${mathMtex(it.pitfalls)}</div></div>` : ""}
-      ${it.source_note ? `<div class="ma-row"><b>备注</b><div>${esc(it.source_note)}</div></div>` : ""}
-    </div>`;
-}
+/* ⚠️ 这里原先是 mathDetail()（推荐解法 / 关键步骤 / 知识点 / 易错点 一大块）。
+   用户 2026-10-12 明确「我不希望有解析了 我觉得那样太费时间」，
+   所以整个渲染函数删掉了。数据（solution / knowledge / key_steps …）仍留在库里——
+   只是不再生成、不再显示；哪天想接回来，后端字段都还在。 */
 
 /* ==========================================================
    录题：一次可放多张照片 → 并发识别 → AI 归类 → 逐张核对 → 全部保存
@@ -3635,6 +3659,7 @@ async function mathExtractWorker() {
         body: JSON.stringify({ image: d.image, subject: d.subject || "", topic: d.topic || "", marker: d.marker }),
       });
       d.stem = r.stem || "";
+      d.answer = r.answer || "";  // 保存提取的答案
       // AI 归类：用户没手动动过分类时才覆盖，别把人改的又冲掉
       if (!d.touched) {
         d.subject = r.subject || d.subject || "";
@@ -3857,6 +3882,7 @@ async function mathSaveAll() {
           /* ⚠️ 故意**不上传原图**：识图只为拿题干，图片用户不要留（省存储）。
              服务端 create_problem 只在收到 image 时才落盘，不发就不会存。 */
           source_note: d.source_note || "",
+          answer: d.answer || "",  // 传递识图时提取的答案
         }),
       });
       d.status = "saved"; ok += 1;
@@ -3874,8 +3900,28 @@ async function mathSaveAll() {
 }
 
 /* ==========================================================
-   刷题面板：题干先出来，解析要等「我做完了」
+   刷题面板：题干 + 最终答案 + 「会做了 / 不会做」
+   ----------------------------------------------------------
+   用户 2026-10-12 的口径：
+     「题目只有 最终答案 然后就是会做了 不会做 我不希望有解析了
+       我觉得那样太费时间 我只需要知道我每次做完了对不对就可以了」
+     「不用点一下对答案 就保留两个按键会做 不会做 我做完了自己去点即可」
+   所以这里**没有**「看解析」那一步：答案直接印在题目下面，做完自己点两个键。
+   解析（推荐解法 / 关键步骤 / 易错点）不再生成、也不再显示。
    ========================================================== */
+function mathAnswerBlock(it) {
+  const ans = String(it.answer || "").trim();
+  if (ans) {
+    return `<div class="math-answer"><b>最终答案</b><div class="ma-val">${mathMtex(ans)}</div></div>`;
+  }
+  return `<div class="math-answer is-empty">
+    <b>最终答案</b>
+    <div class="muted small">这道题还没有答案。
+      <button class="btn tiny" data-m-ask-answer="${it.id}">让 AI 只算个答案</button>
+    </div>
+  </div>`;
+}
+
 function renderDrill() {
   paintMathTabs();          // 刷题面板开没开 → 决定顶栏亮哪个入口
   const box = $("#mathDrillWrap");
@@ -3884,46 +3930,32 @@ function renderDrill() {
   const due = MATH.due.length ? `
     <section class="math-due" aria-label="今天该复习的错题">
       <div class="math-sec-title">今天该复习的错题（${MATH.due.length}）</div>
-      ${MATH.due.map(it => {
-        const answer = MATH.dueAnswers.get(it.id);
-        return `<div class="card math-due-card" data-due-id="${it.id}">
+      ${MATH.due.map(it => `
+        <div class="card math-due-card" data-due-id="${it.id}">
           <div class="math-chips">${mathChips(it)}</div>
           <div class="math-stem">${mathMtex(it.stem)}</div>
-          ${answer ? `${mathDetail(answer)}
-            <div class="math-actions">
-              <button class="btn small primary" data-due-res="right">做对了</button>
-              <button class="btn small warnish" data-due-res="wrong">还是不会</button>
-              <button class="btn tiny" data-due-res="skip">稍后再说</button>
-              <button class="btn tiny" data-due-res="drop">不再复习</button>
-            </div>` : `<div class="math-actions">
-              <button class="btn primary" data-due-reveal="${it.id}">我做完了，看解析</button>
-            </div>`}
-        </div>`;
-      }).join("")}
+          ${mathAnswerBlock(it)}
+          <div class="math-actions">
+            <button class="btn small primary" data-due-res="right">✅ 会做了</button>
+            <button class="btn small warnish" data-due-res="wrong">❌ 不会做</button>
+          </div>
+        </div>`).join("")}
     </section>` : "";
   if (!p) { box.innerHTML = due; return; }
   const img = p.has_image
     ? `<img class="math-photo" src="/api/math/problems/${p.id}/image" alt="原题照片">` : "";
-  const body = MATH.revealed
-    ? `${mathDetail(p)}
-       <div class="math-actions">
-         <button class="btn small primary" data-m-res="right">✅ 做对了</button>
-         <button class="btn small warnish" data-m-res="wrong">❌ 还是不会</button>
-         <button class="btn tiny" data-m-res="skip">稍后再说</button>
-         <button class="btn tiny" data-m-res="drop">不再复习</button>
-         <button class="btn tiny" data-m-close-drill="1">关闭</button>
-       </div>`
-    : `<div class="math-actions">
-         <button class="btn primary" id="mathDone">我做完了，看解析 →</button>
-         <button class="btn tiny" data-m-close-drill="1">关闭</button>
-       </div>`;
   box.innerHTML = `
     <div class="card math-drill">
-      <div class="math-sec-title">刷题 · 先自己做，再看解析</div>
+      <div class="math-sec-title">刷题 · 自己先做，做完点下面两个键</div>
       <div class="math-chips">${mathChips(p)}</div>
       <div class="math-stem">${mathMtex(p.stem)}</div>
-      ${MATH.revealed ? img : ""}
-      ${body}
+      ${img}
+      ${mathAnswerBlock(p)}
+      <div class="math-actions">
+        <button class="btn small primary" data-m-res="right">✅ 会做了</button>
+        <button class="btn small warnish" data-m-res="wrong">❌ 不会做</button>
+        <button class="btn tiny" data-m-close-drill="1">关闭</button>
+      </div>
     </div>${due}`;
 }
 
@@ -4033,6 +4065,67 @@ document.addEventListener("click", async e => {
   /* --- 全部保存 --- */
   if (e.target.closest("#mathSaveAll")) { await mathSaveAll(); return; }
 
+  /* --- 快捷按钮：做对了/还是不会 --- */
+  const quickBtn = e.target.closest("[data-m-quick]");
+  if (quickBtn) {
+    const act = quickBtn.dataset.mQuick;  // "right" 或 "wrong"
+    const id = Number(quickBtn.dataset.mQid);
+    quickBtn.disabled = true;
+
+    // 保存当前滚动位置
+    const scrollY = window.scrollY;
+
+    try {
+      await api(`/api/math/problems/${id}/result`, {
+        method: "POST",
+        body: JSON.stringify({ result: act }),
+      });
+      toast(act === "right" ? "✅ 会做了，下次间隔拉长" : "没关系，明天再来一次");
+      // 刷新列表
+      MATH.meta = null;
+      await loadMath();
+      bumpMathDueCount();
+
+      // 恢复滚动位置
+      window.scrollTo({ top: scrollY });
+    } catch (err) {
+      toast(err.message, true);
+      quickBtn.disabled = false;
+    }
+    return;
+  }
+
+  /* --- 就地改答案 --- */
+  const eSave = e.target.closest("[data-m-edit-save]");
+  if (eSave) {
+    const id = Number(eSave.dataset.mEditSave);
+    const input = $("#meAnswer");
+    const val = input ? input.value.trim() : "";
+    eSave.disabled = true;
+    try {
+      const r = await api(`/api/math/problems/${id}`, {
+        method: "PATCH", body: JSON.stringify({ answer: val }),
+      });
+      const ans = (r.problem && r.problem.answer) || val;
+      const hit = (MATH.items || []).find(x => Number(x.id) === id);
+      if (hit) hit.answer = ans;
+      if (MATH.drill && Number(MATH.drill.id) === id) MATH.drill = { ...MATH.drill, answer: ans };
+      MATH.editId = null;
+      renderMath();
+      toast("已保存答案");
+    } catch (err) { toast(err.message, true); eSave.disabled = false; }
+    return;
+  }
+  if (e.target.closest("[data-m-edit-cancel]")) { MATH.editId = null; renderMath(); return; }
+  const eBtn = e.target.closest("[data-m-edit]");
+  if (eBtn) {
+    const id = Number(eBtn.dataset.mEdit);
+    MATH.editId = MATH.editId === id ? null : id;
+    MATH.openId = id;                  // 编辑时把卡片展开，别让人找不到输入框
+    renderMath();
+    return;
+  }
+
   /* --- 列表操作 --- */
   const tgl = e.target.closest("[data-m-toggle]");
   if (tgl) {
@@ -4041,18 +4134,10 @@ document.addEventListener("click", async e => {
     renderMath();
     return;
   }
-  const ana = e.target.closest("[data-m-analyze]");
-  if (ana) {
-    const id = Number(ana.dataset.mAnalyze);
-    ana.disabled = true; ana.textContent = "解析中…";
-    try {
-      await api(`/api/math/problems/${id}/analyze`, { method: "POST" });
-      MATH.meta = null;
-      await loadMath();
-      toast("解析已生成");
-    } catch (err) { toast(err.message, true); ana.disabled = false; ana.textContent = "AI 解析"; }
-    return;
-  }
+  /* ⚠️ 这里原先是「AI 解析」按钮的处理（调 /analyze 生成整篇解析）。
+   用户 2026-10-12 明确不要解析，按钮已撤，这段也删掉 ——
+   别留着一条会重新触发「费时间那件事」的路径。
+   后端 /analyze 接口仍然保留（万一以后想用），只是前端不再有入口。 */
   const del = e.target.closest("[data-m-del]");
   if (del) {
     const id = Number(del.dataset.mDel);
@@ -4073,53 +4158,37 @@ document.addEventListener("click", async e => {
     MATH.drill = null; MATH.revealed = false; renderDrill(); return;
   }
 
-  /* --- 「我做完了」→ 取解析（没有就现生成） --- */
-  if (e.target.closest("#mathDone")) {
-    const btn = e.target.closest("#mathDone");
-    btn.disabled = true; btn.textContent = "整理解析中…";
+  /* --- 补「最终答案」 ---------------------------------------------------
+   用户 2026-10-12：「我不希望有解析了，我觉得那样太费时间」。
+   所以刷题里**没有**「看解析」这一步了，这里只处理一种情况：
+   历史题 / 手录题缺答案 → 让 AI **只算答案**（不生成解析，快得多也便宜得多）。
+   ⚠️ 不要在这里改回调 /analyze —— 那正是用户嫌慢的那件事。 */
+  const askAns = e.target.closest("[data-m-ask-answer]");
+  if (askAns) {
+    const id = Number(askAns.dataset.mAskAnswer);
+    askAns.disabled = true;
+    askAns.textContent = "算答案中…";
     try {
-      let p = await api("/api/math/problems/" + MATH.drill.id);
-      if (!p.analyzed) {
-        const r = await api(`/api/math/problems/${p.id}/analyze`, { method: "POST" });
-        p = r.problem || p;
-        MATH.meta = null;
-      }
-      MATH.drill = p;
-      MATH.revealed = true;
+      const r = await api(`/api/math/problems/${id}/answer`, { method: "POST" });
+      const ans = (r.problem && r.problem.answer) || "";
+      if (!ans) throw new Error("还是没算出来，可以自己把答案填进去");
+      /* 就地更新三个可能持有这道题的地方，避免整页重载（用户也不喜欢跳走） */
+      if (MATH.drill && Number(MATH.drill.id) === id) MATH.drill = { ...MATH.drill, answer: ans };
+      [MATH.due, MATH.items].forEach(arr => {
+        const hit = (arr || []).find(x => Number(x.id) === id);
+        if (hit) hit.answer = ans;
+      });
       renderDrill();
-      await loadMath();
+      renderMath();
+      toast("答案已补上");
     } catch (err) {
       toast(err.message, true);
-      /* 解析失败时不能进入评分态：题目没有答案，用户无法可靠判断对错。
-         保持未揭示会保留题干和重试按钮，等接口恢复后再继续。 */
-      MATH.revealed = false;
-      renderDrill();
+      askAns.disabled = false;
+      askAns.textContent = "让 AI 只算个答案";
     }
     return;
   }
 
-  const dueReveal = e.target.closest("[data-due-reveal]");
-  if (dueReveal) {
-    const id = Number(dueReveal.dataset.dueReveal);
-    dueReveal.disabled = true;
-    dueReveal.textContent = "整理解析中…";
-    try {
-      let p = await api(`/api/math/problems/${id}`);
-      if (!p.analyzed) {
-        const r = await api(`/api/math/problems/${id}/analyze`, { method: "POST" });
-        p = r.problem || p;
-        MATH.meta = null;
-      }
-      if (!p.solution && !(p.key_steps || []).length) throw new Error("还没有可核对的解析，请重试");
-      MATH.dueAnswers.set(id, p);
-      renderDrill();
-    } catch (err) {
-      toast(err.message, true);
-      dueReveal.disabled = false;
-      dueReveal.textContent = "我做完了，看解析";
-    }
-    return;
-  }
   const dueResult = e.target.closest("[data-due-res]");
   if (dueResult) {
     const cardEl = dueResult.closest("[data-due-id]");

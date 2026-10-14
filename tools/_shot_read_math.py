@@ -187,18 +187,25 @@ window.onerror = (m, s, l) => L("JSERR:" + m + "@" + l);
       L("due_cards=" + cards);
       if (!cards) { L("END_OK"); return; }
 
-      /* 展开第一道的解析 → 出现「做对了」 */
+      /* 新口径（2026-10-12）：答案直接印在题下，不需要点「看解析」；
+         按钮就两个：会做了 / 不会做。 */
       const first = doc.querySelector("[data-due-id]");
       const fid = first.dataset.dueId;
-      const reveal = first.querySelector("[data-due-reveal]");
-      if (reveal) { reveal.click(); }
-      let hasRes = 0;
-      for (let i = 0; i < 80; i++) {
-        await sleep(150);
-        hasRes = doc.querySelectorAll("[data-due-res]").length;
-        if (hasRes) break;
-      }
-      L("res_buttons=" + hasRes);
+      const ansEl = first.querySelector(".math-answer .ma-val");
+      L("has_answer_block=" + (ansEl ? 1 : 0));
+      L("answer_text=" + JSON.stringify(ansEl ? ansEl.textContent.trim() : ""));
+      const resBtns = Array.from(doc.querySelectorAll("[data-due-res]"));
+      L("res_buttons=" + resBtns.length);
+      L("res_labels=" + JSON.stringify(resBtns.map(b => b.textContent.trim())));
+      L("no_reveal_btn=" + (doc.querySelector("[data-due-reveal]") ? 0 : 1));
+      /* 卡片里不该再出现解析字样 */
+      const cardTxt = first.textContent || "";
+      const badWords = ["推荐解法", "关键步骤", "易错点", "另一种解法", "看解析"];
+      L("no_analysis_words=" + (badWords.some(wd => cardTxt.indexOf(wd) >= 0) ? 0 : 1));
+      /* ⚠️ 按**每张卡片**数按钮：一次可能有好几道到期题，
+         全局数会把「2 张卡 × 2 个按钮」算成 4 个（第一版就踩了这个）。 */
+      const cardCount = Math.max(1, doc.querySelectorAll("[data-due-id]").length);
+      L("buttons_per_card=" + Math.round(resBtns.length / cardCount));
 
       /* 滚到下面一点，模拟「刷到中间」的位置 */
       w.scrollTo(0, 260);
@@ -268,7 +275,7 @@ try:
     for t in ("QA 错题一号：求 $\\int_0^1 x^2 dx$", "QA 错题二号：求 $\\sum_{n=1}^{\\infty} 1/n^2$"):
         req = urllib.request.Request(
             BASE + "/api/math/problems", method="POST",
-            data=json.dumps({"stem": t, "subject": "高等数学", "topic": "QA", "kind": "normal"}).encode("utf-8"),
+            data=json.dumps({"stem": t, "subject": "高等数学", "topic": "QA", "kind": "normal", "answer": "$\\frac{1}{3}$"}).encode("utf-8"),
             headers={"Content-Type": "application/json"})
         try:
             with OPENER.open(req, timeout=20) as r:
@@ -336,7 +343,15 @@ try:
         ("重新载入后字体保持", kv.get("restore_font") == "sans", kv.get("restore_font")),
         ("恢复默认回到标准字号", kv.get("reset_back_to_default") == "1", kv.get("reset_size")),
         ("到期错题卡片渲染出来", (kv.get("due_cards") or "0") != "0", kv.get("due_cards")),
-        ("点「做对了」这道就地消失", kv.get("answered_removed") == "1", kv.get("answered_removed")),
+        ("卡片上直接显示最终答案", kv.get("has_answer_block") == "1", kv.get("has_answer_block")),
+        ("答案内容是预置的那个", "1/3" in str(kv.get("answer_text", "")) or "\\frac{1}{3}" in str(kv.get("answer_text", "")),
+         kv.get("answer_text")),
+        ("每张卡只有两个按钮", kv.get("buttons_per_card") == "2", f"{kv.get('buttons_per_card')} 个"),
+        ("按钮就是「会做了 / 不会做」",
+         ("会做了" in str(kv.get("res_labels", "")) and "不会做" in str(kv.get("res_labels", ""))), kv.get("res_labels")),
+        ("没有「看解析」这一步", kv.get("no_reveal_btn") == "1", kv.get("no_reveal_btn")),
+        ("卡片里不再出现解析字样", kv.get("no_analysis_words") == "1", kv.get("no_analysis_words")),
+        ("点「会做了」这道就地消失", kv.get("answered_removed") == "1", kv.get("answered_removed")),
         ("滚动位置没有被甩回顶部", kv.get("scroll_kept") == "1",
          f"{kv.get('scroll_before')} -> {kv.get('scroll_after')}"),
         ("仍留在数学页（没跳去题库顶部）", kv.get("still_math") == "1", kv.get("still_math")),

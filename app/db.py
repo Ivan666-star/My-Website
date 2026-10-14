@@ -374,6 +374,7 @@ SCHEMA = (
     "    kind           TEXT DEFAULT 'normal',                    -- normal 普通错题 / exam 考研真题错题\n"
     "    topic          TEXT DEFAULT '',                          -- 专题\n"
     "    stem           TEXT NOT NULL,                            -- 题干（只录题干，不含答案与解析）\n"
+    "    answer         TEXT DEFAULT '',                          -- 最终答案（只要答案，不要过程）\n"
     "    image_path     TEXT DEFAULT '',                          -- 原题照片（相对 data/ 的路径）\n"
     "    source_note    TEXT DEFAULT '',                          -- 来源备注（哪本书 / 哪套卷）\n"
     "    knowledge      TEXT DEFAULT '',                          -- AI：核心知识点\n"
@@ -534,6 +535,30 @@ def _migrate(conn: sqlite3.Connection) -> None:
     for name, ddl in _WI_ADD_COLUMNS:
         if name not in wi_cols:
             conn.execute(f"ALTER TABLE writing_items ADD COLUMN {name} {ddl}")
+
+    # math_problems.answer：最终答案单独一列。
+    # 用户 2026-10-12 明确口径：「只要最终答案，不要解析」。
+    # 以前是图省事把「答案：xxx」塞进 solution 列，和推荐解法混在一起 ——
+    # 这次把老数据搬出来，让答案有自己干净的位置。
+    math_cols = {r["name"] for r in conn.execute("PRAGMA table_info(math_problems)")}
+    if "answer" not in math_cols:
+        conn.execute("ALTER TABLE math_problems ADD COLUMN answer TEXT DEFAULT ''")
+        # 把历史里 solution 开头是「答案：」的那一行搬到新列，并把 solution 里这一段去掉
+        rows = conn.execute(
+            "SELECT id, solution FROM math_problems "
+            "WHERE solution LIKE '答案%' AND (answer IS NULL OR answer='')"
+        ).fetchall()
+        for r in rows:
+            sol = r["solution"] or ""
+            m = re.match(r"^答案[：:]\s*([^\n]*)\n?", sol)
+            if not m:
+                continue
+            ans = (m.group(1) or "").strip()
+            rest = sol[m.end():].strip()
+            conn.execute("UPDATE math_problems SET answer=?, solution=? WHERE id=?",
+                         (ans, rest, r["id"]))
+        if rows:
+            print(f"[migrate] 数学错题：把 {len(rows)} 条历史答案搬到 answer 列")
 
     # ---- 3) 补列之后再建索引 ----
     conn.execute("CREATE INDEX IF NOT EXISTS idx_fav_library ON favorites(library)")
