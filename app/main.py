@@ -1094,6 +1094,10 @@ def api_health():
         # 这个型号到底支不支持读图（能读图的是 deepseek-flash 这类视觉模型）。
         "ai_model": settings.ai_model,
         "ai_model_vision": settings.ai_model_vision,
+        # 英语的解析 / 批改用的是强模型。报出来是为了「一眼看出有没有漏配」——
+        # 2026-10-14 就踩过：AI_MODEL_STRONG 留空 → 英语一直在用便宜模型，质量差一档，
+        # 而界面上完全看不出来。
+        "ai_model_strong": settings.ai_model_strong,
         "scheduler": scheduler.state(),
     }
 

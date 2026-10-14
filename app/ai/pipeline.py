@@ -747,7 +747,9 @@ def classify_material(
                     content, cn, example, item_type, source_title, source_topic
                 ),
                 temperature=0.2,
-                max_tokens=800,
+                # 推理模型会先吃思考额度：800 太紧，会随机被判「输出达到长度限制」
+                # （和 lookup_word 同一个坑，2026-10-14 实测确认）
+                max_tokens=2500,
             )
             out = _normalize_classification(parse_json(raw), content, cn, example, item_type)
             out["ai"] = True
@@ -837,7 +839,8 @@ def label_materials(article_id: int) -> list[dict]:
         prompts.LABEL_MATERIALS_SYSTEM,
         prompts.build_label_materials_prompt(art.get("title", ""), items),
         temperature=0.2,
-        max_tokens=1500,
+        # 一次可能标注多条素材，输出本就偏长；再叠上思考额度，1500 会不够
+        max_tokens=4000,
     )
     data = parse_json(raw)
     labels = data.get("labels") or []
@@ -1125,7 +1128,10 @@ def lookup_word(word: str, context: str = "") -> dict:
     raw = get_provider().chat(
         LOOKUP_SYSTEM, user,
         temperature=0.1,      # 查词不需要发挥
-        max_tokens=1200,
+        # ⚠️ 额度给足：模型是推理模型，会先吃掉一大块思考额度。之前给 1200 时，
+        # 实测连「判断 impulses 在句中的意思」这种小任务都会被判「输出达到长度限制」
+        # 直接失败 —— 双击查词就变成弹一个错误。额度只是上限，调高不会多花钱。
+        max_tokens=3000,
         retries=1,
     )
     try:

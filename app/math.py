@@ -812,7 +812,10 @@ def fill_answer(pid: int) -> dict | None:
         ANSWER_SYSTEM,
         f"题干：\n{row['stem']}",
         temperature=0.1,     # 求答案不需要发挥，越低越稳
-        max_tokens=1200,     # 只要一个答案，给多了反而容易被写成解析
+        # ⚠️ 别因为「答案很短」就把额度设小：这是个**推理模型**，会先吃掉一大块思考额度。
+        # 给 1200 时好时坏 —— 简单题侥幸过，稍微要想的题就被判「输出达到长度限制」直接失败
+        # （实测：同一道题 1200 报错、4000 正常）。答案只有一行，但额度必须给足。
+        max_tokens=4000,
         retries=1,
     )
     ans = clean_extracted_stem(str(raw or "").strip())
