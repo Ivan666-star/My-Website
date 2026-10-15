@@ -2905,10 +2905,28 @@ function mathSubjectOpts(cur) {
     subs.map(s => `<option value="${esc(s)}"${s === cur ? " selected" : ""}>${esc(s)}</option>`).join("");
 }
 function mathTopicOpts(subject, cur) {
-  const map = (MATH.meta && MATH.meta.topics) || {};
-  const list = map[subject] || [];
-  return `<option value="">未选专题</option>` +
-    list.map(t => `<option value="${esc(t)}"${t === cur ? " selected" : ""}>${esc(t)}</option>`).join("");
+  const m = MATH.meta || {};
+  const map = m.topics || {};
+  /* 用户 2026-10-15：「数学的各项专题拉下列表没有」。
+     原因是这里以前**只**认「科目」：科目默认是「未分类」（value=""），
+     于是 map[""] 是 undefined → 下拉里只剩「未选专题」一项，看着像坏了。
+     现在改成：没选科目时，把本入口的**所有专题按科目分组**列全（optgroup）；
+     选了科目就只列那一科 —— 二级联动的意思保留，但下拉永远有东西可选。
+     只按专题筛也行：后端 list_problems(topic=...) 不带科目一样能查。 */
+  const subs = subject
+    ? [subject]
+    : (m.module_subjects || m.subjects || []).filter(s => (map[s] || []).length);
+  const groups = subs.filter(s => (map[s] || []).length);
+  const head = `<option value="">未选专题</option>`;
+  if (!groups.length) return head;
+  if (groups.length === 1) {
+    return head + map[groups[0]]
+      .map(t => `<option value="${esc(t)}"${t === cur ? " selected" : ""}>${esc(t)}</option>`).join("");
+  }
+  return head + groups.map(s =>
+    `<optgroup label="${esc(s)}">` +
+    map[s].map(t => `<option value="${esc(t)}"${t === cur ? " selected" : ""}>${esc(t)}</option>`).join("") +
+    `</optgroup>`).join("");
 }
 function mathKindOpts(cur) {
   const k = (MATH.meta && MATH.meta.kinds) || { normal: "普通错题", exam: "考研真题错题" };

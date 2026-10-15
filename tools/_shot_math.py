@@ -346,6 +346,14 @@ function stubExtract(w){
     }
 
     note("cards", d.querySelectorAll(".math-card").length);
+    /* 用户 2026-10-15：「数学的各项专题拉下列表没有」——
+       专题下拉过去只认「科目」，而科目默认是「未分类」，于是只剩「未选专题」一项。
+       现在没选科目时应当把本入口的所有专题按科目分组列全。 */
+    const topicSel = d.querySelector("#mfTopic");
+    note("topic_options", topicSel ? topicSel.querySelectorAll("option").length : -1);
+    note("topic_groups", topicSel ? topicSel.querySelectorAll("optgroup").length : -1);
+    note("topic_samples", topicSel
+      ? Array.from(topicSel.querySelectorAll("option")).slice(1, 4).map(o => o.textContent).join("|") : "");
     note("due_rows", d.querySelectorAll(".math-due-row").length);
     note("badge_hidden", d.querySelector("#mathBadge").hidden ? 1 : 0);
     /* 数学页的回头路是**品牌标记**（点它回科目选择），顶栏那一排在英语页才出现 */
@@ -882,6 +890,10 @@ try:
         else:
             check(f"[{tag}] 从主界面点「数学」能进数学页", n.get("entered_math") == 1)
             check(f"[{tag}] 卡片数 = 5", n.get("cards") == 5, f"({n.get('cards')})")
+            # 专题下拉必须有内容：数学入口 = 3 个科目分组 + 20 个专题（+「未选专题」）
+            check(f"[{tag}] 专题下拉有 20 个专题、按 3 个科目分组",
+                  n.get("topic_options") == 21 and n.get("topic_groups") == 3,
+                  f"(options={n.get('topic_options')} groups={n.get('topic_groups')} 前几个={n.get('topic_samples')!r})")
             check(f"[{tag}] 数学页能靠品牌标记回主界面", n.get("brand_home") == 1)
             # ⭐ 数学页顶栏必须干净：那些入口（连续/复习/选科目/素材库/数据/历史）
             #    全是**英语模块**的功能，摆在数学专题里是错的（用户 2026-10-07 指出）
