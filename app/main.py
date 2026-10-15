@@ -862,6 +862,8 @@ def api_review_due():
 
     用户口径（2026-10-11）：高亮进阅读笔记的东西「不能只是这次看了就过去了，
     要能够不断复现记住」，所以笔记和收藏共用同一套 1→2→4→7→15→30→60 天阶梯。
+    用户口径（2026-10-14）：复习提醒**只针对词汇和表达** —— 长难句、语法积累
+    不进队列（db._NOT_IN_REVIEW 负责过滤），它们留在素材库里随时翻阅。
     """
     items = db.review_due() + notes.notes_review_due()
     items.sort(key=lambda r: (r.get("next_review") or "9999", r.get("src") or "fav", r.get("id") or 0))

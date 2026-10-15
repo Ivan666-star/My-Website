@@ -9,9 +9,11 @@
 所以：
   · 高亮（划选填充）**自动**生成一条笔记 —— 不需要用户再点一次「保存」；
   · 笔记是**独立**的一份数据（`reading_notes` 表），有自己的库页面；
-  · 语法点也能单独攒起来（进 `favorites` 的 grammar 库，白拿那套阶梯复习）；
+  · 语法点单独攒在 `favorites` 的 grammar 库里，**只供随时查阅，不进每日复习**
+    （用户 2026-10-14：复习提醒只针对词汇和表达，长难句和语法先不管）；
   · 笔记**收藏即入复习节奏**：next_review = 次日，和素材库同一套
     1 → 2 → 4 → 7 → 15 → 30 → 60 天阶梯（间隔常量在 db.py，别在这里另写一份）。
+    笔记记的是划选出来的词和短语，属于「表达」，所以照旧进复习。
 """
 from __future__ import annotations
 
@@ -224,7 +226,7 @@ def notes_apply_review(nid: int, result: str) -> dict | None:
 
 
 # ------------------------------------------------------------
-# 语法积累库（跨文章攒语法点，走 favorites 的 grammar 库）
+# 语法积累库（跨文章攒语法点，走 favorites 的 grammar 库；只查阅，不进每日复习）
 # ------------------------------------------------------------
 def save_grammar_point(
     name: str,
@@ -236,7 +238,11 @@ def save_grammar_point(
     article_id: int | None = None,
     doc_date: str = "",
 ) -> dict:
-    """把一个语法点收进语法积累库。同名同来源只收一次。"""
+    """把一个语法点收进语法积累库。同名同来源只收一次。
+
+    next_review 故意留空：语法属于「闲时精读」，不进每日复习队列
+    （db._NOT_IN_REVIEW 也会把 library='grammar' 挡在复习之外，这里是双保险）。
+    """
     title = (name or "").strip()
     if not title:
         raise ValueError("语法点名称为空")
@@ -251,8 +257,7 @@ def save_grammar_point(
         """INSERT INTO favorites(user_id,item_type,content,cn,example,tags,source_article_id,
                                  library,category,position,genre,function,level,usage,
                                  auto,confidence,updated_at,review_count,next_review)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'),0,
-                  date('now','localtime','+1 day'))""",
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'),0,'')""",
         (
             uid, "grammar", title,
             explanation or pattern or "",

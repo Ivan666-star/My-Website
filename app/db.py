@@ -1092,6 +1092,12 @@ MASTERED_AT = len(REVIEW_INTERVALS)
 
 _NOT_IN_CYCLE = "next_review IS NULL OR next_review=''"
 
+# 进每日复习的范围（用户口径 2026-10-14）：**只有「词汇」和「表达」**。
+# 长难句（item_type='sentence'）和语法积累（library='grammar'）属于「闲时精读」，
+# 它们留在素材库 / 语法积累库里随时翻阅，但不每天提醒，也不算进复习周期。
+# 复习页的文案要跟这条规则保持一致（app.js 的 renderReview）。
+_NOT_IN_REVIEW = "item_type NOT IN ('sentence','grammar') AND COALESCE(library,'')<>'grammar'"
+
 
 def _load_tags(rows: list[dict]) -> list[dict]:
     for r in rows:
@@ -1103,10 +1109,14 @@ def _load_tags(rows: list[dict]) -> list[dict]:
 
 
 def review_due(limit: int = 200) -> list[dict]:
-    """今天（含逾期）该复习的素材，最久没碰的排前面。"""
+    """今天（含逾期）该复习的素材，最久没碰的排前面。
+
+    只收「词汇 + 表达」；长难句和语法积累不在这里（见 _NOT_IN_REVIEW）。
+    """
     w, a = scope()
     rows = query(
-        f"SELECT * FROM favorites WHERE {w} AND NOT ({_NOT_IN_CYCLE}) AND next_review<=? "
+        f"SELECT * FROM favorites WHERE {w} AND {_NOT_IN_REVIEW} "
+        f"AND NOT ({_NOT_IN_CYCLE}) AND next_review<=? "
         f"ORDER BY next_review ASC, id ASC LIMIT ?",
         (*a, today_str(), limit),
     )
@@ -1117,12 +1127,16 @@ def review_stats() -> dict:
     today = today_str()
     w, a = scope()
     due = query_one(
-        f"SELECT COUNT(*) c FROM favorites WHERE {w} AND NOT ({_NOT_IN_CYCLE}) AND next_review<=?",
+        f"SELECT COUNT(*) c FROM favorites WHERE {w} AND {_NOT_IN_REVIEW} "
+        f"AND NOT ({_NOT_IN_CYCLE}) AND next_review<=?",
         (*a, today),
     )
-    in_cycle = query_one(f"SELECT COUNT(*) c FROM favorites WHERE {w} AND NOT ({_NOT_IN_CYCLE})", a)
+    in_cycle = query_one(
+        f"SELECT COUNT(*) c FROM favorites WHERE {w} AND {_NOT_IN_REVIEW} AND NOT ({_NOT_IN_CYCLE})", a
+    )
     mastered = query_one(
-        f"SELECT COUNT(*) c FROM favorites WHERE {w} AND NOT ({_NOT_IN_CYCLE}) AND review_count>=?",
+        f"SELECT COUNT(*) c FROM favorites WHERE {w} AND {_NOT_IN_REVIEW} "
+        f"AND NOT ({_NOT_IN_CYCLE}) AND review_count>=?",
         (*a, MASTERED_AT),
     )
     total = query_one(f"SELECT COUNT(*) c FROM favorites WHERE {w}", a)

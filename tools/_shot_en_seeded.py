@@ -1,20 +1,23 @@
 # -*- coding: utf-8 -*-
-"""把**线上库的副本**装进无头浏览器，逐页出图并断言：刚灌进去的英语示例数据渲染是否正常。
+"""在**全新临时库**上灌一份英语种子数据，再用无头浏览器逐页出图并断言：英语模块渲染是否正常。
 
 为什么要费这个事：
-    "数据在库里" 和 "页面上看得对" 是两件事。这次灌的是**刚补上的空白页**
-    （素材库 / 复习）和 2 篇新文章，任何一处字段名对不上，前端都不会报错，
+    "数据在库里" 和 "页面上看得对" 是两件事。任何一处字段名对不上，前端都不会报错，
     只会**默默空白** —— 正是用户最反感的那种。所以不信 SQL，直接看像素。
 
 怎么做到不碰线上：
-    拷一份 data/app.db（⚠️ 连 `-wal` / `-shm` 一起）到临时目录 → 清 users/sessions、
-    把带 user_id 的表挪到 0 号桶 → AI_API_KEY="" 起服务 → 没有账号 → auth 进 OPEN 模式，
-    免登录。线上 8848 与线上库全程不动。
+    临时目录里新建一份中心库（只有 users/sessions/profile）→ 以「未认领 0 号桶」
+    灌入 `_seed_english` 的两篇示例文章 + 20 条素材 → 该桶的 learning.db 就落在临时目录里；
+    AI_API_KEY="" 起服务 → 没有账号 → auth 进 OPEN 模式，免登录。线上 8848 与线上库全程不动。
+
+    ⚠️ 2026-10-15 之前这里靠「拷一份线上 data/app.db」拿数据，早就坏了：学习数据从
+    2026-10-09 起按账号分库（data/users/<id>_<名字>/learning.db），拷中心库只会得到空站点。
+    现在改成自己灌种子，症状也就不会随线上库变化而漂移。
 
 三个阶段各出一张图（每阶段单独跑一次 Chrome，否则只有最后一张）：
-    stage=materials  430×900   素材库（筛「作文素材库」后）
+    stage=materials  430×900   素材库（含类型分栏：词汇/短语/句型/长难句/语法）
     stage=review     430×900   复习（展开第一条的答案）
-    stage=article   1024×1366  打开 2026-10-01 那篇新文章，展开解析（含命题视角）
+    stage=article   1024×1366  打开 2026-10-01 那篇示例文章，展开解析（两组：日常必记/闲时精读）
 
 跑法：python tools/_shot_en_seeded.py
 """
@@ -23,7 +26,6 @@ from __future__ import annotations
 import io
 import json
 import os
-import shutil
 import sqlite3
 import subprocess
 import sys
@@ -32,6 +34,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -146,7 +149,22 @@ function num(d, sel){
       await until(() => d.querySelectorAll(".mat-item").length > 0, 400);
       await raf(10);
       note("mat_items", d.querySelectorAll(".mat-item").length);
-      note("lib_tabs", d.querySelectorAll(".lib-tab").length);
+      note("lib_tabs", d.querySelectorAll(".lib-tabs:not(.lib-type-tabs) .lib-tab").length);
+      note("type_tabs", d.querySelectorAll(".lib-type-tabs .lib-tab").length);
+      note("type_labels", [...d.querySelectorAll(".lib-type-tabs .lib-tab")].map(b => b.dataset.type).join(","));
+      /* 类型分栏要真的在过滤（用户 2026-10-14：语法在语法一栏、词汇在词汇一栏、长难句在长难句一栏） */
+      const typeTab = t => [...d.querySelectorAll(".lib-type-tabs .lib-tab")].find(b => b.dataset.type === t);
+      const clickType = async t => { const b = typeTab(t); if (b) { b.click(); await raf(10); } };
+      await clickType("pattern");
+      note("after_pattern", d.querySelectorAll(".mat-item").length);
+      await clickType("phrase");
+      note("after_phrase", d.querySelectorAll(".mat-item").length);
+      await clickType("grammar");
+      note("after_grammar", d.querySelectorAll(".mat-item").length);
+      note("grammar_note", (d.querySelector(".lib-type-note") || {}).textContent ? 1 : 0);
+      note("grammar_pos_filters", d.querySelectorAll(".pos-filter").length);
+      await clickType("");   // 回到「全部」，后面的库/位置筛选断言照旧
+      note("back_all", d.querySelectorAll(".mat-item").length);
       note("pos_filters", d.querySelectorAll(".pos-filter").length);
       note("genre_filters", d.querySelectorAll(".genre-filter").length);
       note("cats", d.querySelectorAll(".mat-item .mat-cat").length);
@@ -155,10 +173,11 @@ function num(d, sel){
       note("auto_pct", d.querySelectorAll(".mat-item .mat-auto:not(.manual)").length);
       note("usage_lines", d.querySelectorAll(".mat-item .mat-usage").length);
       note("rev_line", d.querySelectorAll(".mat-item .mat-rev").length);
+      note("type_chips", d.querySelectorAll(".mat-item .mat-type").length);
       const sum = d.querySelectorAll(".lib-sum-item b");
       note("sum_total", sum.length ? (parseInt(sum[0].textContent.trim(), 10) || 0) : -1);
       /* 筛「作文素材库」→ 12 条；再筛「开头段」→ 2 条（验证筛选真的在过滤，不是装饰） */
-      const tabW = [...d.querySelectorAll(".lib-tab")].find(b => b.dataset.lib === "writing");
+      const tabW = [...d.querySelectorAll(".lib-tabs:not(.lib-type-tabs) .lib-tab")].find(b => b.dataset.lib === "writing");
       if (tabW) { tabW.click(); await raf(10); }
       note("after_writing", d.querySelectorAll(".mat-item").length);
       const posOpen = [...d.querySelectorAll(".pos-filter")].find(b => b.dataset.pos === "opening");
@@ -170,7 +189,7 @@ function num(d, sel){
       if (rt) { rt.click(); await raf(6); }
       note("retag_pos_btns", card ? card.querySelectorAll("[data-set-pos]").length : 0);
       note("retag_genre_btns", card ? card.querySelectorAll("[data-set-genre]").length : 0);
-      note("overflow", overflowIn(d, "#pageBody-library > *, .mat-item, .lib-tab, .pos-filter, .genre-filter"));
+      note("overflow", overflowIn(d, "#pageBody-library > *, .mat-item, .lib-tab, .lib-type-tabs .lib-tab, .lib-type-note, .pos-filter, .genre-filter"));
     }
 
     if (STAGE === "review") {
@@ -181,6 +200,10 @@ function num(d, sel){
       note("due", num(d, '[data-rev-stat="due"]'));
       note("in_cycle", num(d, '[data-rev-stat="in_cycle"]'));
       note("mastered", num(d, '[data-rev-stat="mastered"]'));
+      /* 复习只收词汇和表达（用户 2026-10-14）：种子里 4 条都是短语/句型 → 只该有「表达」一栏 */
+      note("rev_groups", d.querySelectorAll(".rev-group").length);
+      note("rev_group_titles", [...d.querySelectorAll(".rev-group-title")].map(e => e.textContent).join("|"));
+      note("rev_scope_note", (d.querySelector("#pageBody-review").textContent || "").indexOf("这里只有") >= 0 ? 1 : 0);
       const sum = d.querySelectorAll(".lib-sum-item b");
       note("total", sum.length > 3 ? (parseInt(sum[3].textContent.trim(), 10) || 0) : -1);
       note("pos_chips", d.querySelectorAll(".rev-card .pos-chip").length);
@@ -231,18 +254,22 @@ function num(d, sel){
             数子节点会把 5 段读成 6 段（第一次就踩了）。 */
       note("trans_rows", d.querySelectorAll("#transBody .trans-item").length);
       note("trans_notes", d.querySelectorAll("#transBody .trans-note").length);
-      note("vocab_rows", d.querySelectorAll("#vocabList > *").length);
+      note("vocab_rows", d.querySelectorAll("#vocabList .v-item").length);
       note("vocab_sub", (d.querySelector("#vocabSub").textContent || "").trim());
-      note("sent_rows", d.querySelectorAll("#sentList .s-item").length);
-      note("logic_paras", d.querySelectorAll("#logicBody .lg-para").length);
-      note("logic_tips", d.querySelectorAll("#logicBody .lg-tips li").length);
+      note("vocab_exam_hint", d.querySelector("#vocabList").textContent.indexOf("考研真题的高频义") >= 0 ? 1 : 0);
+      /* 长难句与语法合并成一个板块（用户 2026-10-14），两个小节都数出来 */
+      note("sent_rows", d.querySelectorAll("#sentGramList .s-item").length);
+      note("gram_rows", d.querySelectorAll("#sentGramList .g-item").length);
+      note("sg_sections", d.querySelectorAll("#sentGramList .sg-section").length);
+      /* 解析区分两组：日常必记（词汇+表达）/ 闲时精读（长难句与语法） */
+      note("ana_groups", d.querySelectorAll("#analysis .ana-group").length);
+      note("ana_titles", [...d.querySelectorAll("#analysis .ana-group-title")].map(e => e.textContent).join("|"));
+      /* 用户 2026-10-11 撤掉的入口（阅读逻辑 / 命题视角）不该偷偷回来 */
+      note("logic_present", d.querySelector("#logicBody") ? 1 : 0);
+      note("exam_present", d.querySelector("#examBody") ? 1 : 0);
       note("write_items", d.querySelectorAll("#writeList .w-item").length);
       note("wf_note", d.querySelectorAll("#writeList .w-pos-hint").length);
       note("wf_genre", d.querySelectorAll("#writeList .w-genre-hint").length);
-      /* 命题视角：字段名对不上就会默默空白，这里必须数出东西 */
-      note("ef_items", d.querySelectorAll("#examBody .ef-item").length);
-      note("ef_traps", d.querySelectorAll("#examBody .ef-trap").length);
-      note("ef_pattern", (d.querySelector("#examSub").textContent || "").trim().slice(0, 40));
       note("katex_nodes", d.querySelectorAll(".katex-html").length);
       note("mtex_fallback", d.querySelectorAll(".mtex").length);
       note("overflow", overflowIn(d, "#articleWrap > *, #analysis > *"));
@@ -324,31 +351,25 @@ def main() -> None:
     if not Path(CHROME).exists():
         sys.exit(f"找不到 Chrome：{CHROME}")
 
-    src = ROOT / "data" / "app.db"
-    # ⚠️⚠️ 必须连着 `-wal` / `-shm` 一起拷！库跑 WAL 模式，刚提交的数据还在 -wal 里，
-    #      只拷 app.db 会拿到一份**早于本次写入**的旧库（而且看着"拷贝成功"）。
-    for suf in ("", "-wal", "-shm"):
-        s = Path(str(src) + suf)
-        if s.exists():
-            shutil.copy2(s, Path(str(TMP / "app.db") + suf))
-    con = sqlite3.connect(str(TMP / "app.db"))
-    con.row_factory = sqlite3.Row
-    # 「还原成还没有账号的年代」：否则真实库里的账号会让服务进 MODE_ACCOUNTS、/ 跳 /login
-    for t in ("articles", "events", "favorites", "study_log", "user_profile", "annotations",
-              "math_problems", "math_review_log"):
-        try:
-            con.execute(f"UPDATE {t} SET user_id=0")
-        except sqlite3.OperationalError:
-            pass
-    try:
-        con.execute("DELETE FROM sessions")
-    except sqlite3.OperationalError:
-        pass
-    con.execute("DELETE FROM users")
-    con.commit()
-    n_fav = con.execute("SELECT COUNT(*) FROM favorites").fetchone()[0]
-    n_art = con.execute("SELECT COUNT(*) FROM articles").fetchone()[0]
-    con.close()
+    # ---- 临时库：全新建一份，种子直接灌进去（线上库全程不碰）----
+    # ⚠️ 2026-10-09 起学习数据**按账号分库**：中心库只剩 users/sessions/profile，
+    #    文章/素材/笔记都在 data/users/<id>_<名字>/learning.db 里。
+    #    所以「拷一份线上 app.db」这条老路子现在只会拿到一篇空白站点
+    #    （2026-10-15 发现并改掉）。这里改成：临时中心库新建 → 以「未认领 0 号桶」
+    #    灌一份种子 → 服务在 MODE_OPEN 下读的就是 0 号桶。
+    #    只调 _seed_english 的两个写库函数，绝不去碰它的 main()（那个会备份+写线上库）。
+    os.environ["DB_PATH"] = str(TMP / "app.db").replace("\\", "/")
+    sys.path.insert(0, str(ROOT))
+    sys.path.insert(0, str(ROOT / "tools"))
+    from app import db as _db          # noqa: E402  必须在 DB_PATH 设好之后再导入
+    import _seed_english as _se        # noqa: E402
+
+    with _db.as_system():
+        _db.init_db()
+    with _db.as_local():
+        _db.ensure_user_db(_db.UNCLAIMED)
+        n_art = len(_se.seed_articles(_db.UNCLAIMED))
+        n_fav = len(_se.seed_materials(_db.UNCLAIMED))
     print(f"临时库就绪（素材 {n_fav} 条 / 文章 {n_art} 篇）-> {TMP}\n")
 
     HARNESS.write_text(
@@ -391,20 +412,23 @@ def main() -> None:
               (rev.get("items") or [{}])[0].get("content") == "at the expense of",
               f"({(rev.get('items') or [{}])[0].get('content')!r})")
 
-        sn = req("/api/stats?days=7")
-        check("学习数据：7 天内 7 篇文章（窗口被补齐）", sn.get("articles") == 7,
+        sn = req("/api/stats?days=30")
+        # ⚠️ 种子文章的日期是**写死的**（2026-10-01 / 10-02），这个测试又必须能隔几天再跑，
+        #    所以这里统一用 30 天窗口：7 天窗口在种子之后一周就自然为空了（老版本就是这么过期的）。
+        check("学习数据：30 天内 2 篇文章（种子就两篇）", sn.get("articles") == 2,
               f"(实得 {sn.get('articles')})")
-        # ⚠️ 现状如此、不是本次灌数据造成的：真题的 study_log 用的是伪日期
-        #    `exam-2010-text2`，字符串比较时 'e' > '2'，所以它也被算进了这个窗口，
-        #    活跃天数 = 7 天 + 1 = 8。属于既有小毛病，已单独记下（见对话里的说明）。
-        check("学习数据：活跃天数 8（7 天 + 真题那天的伪日期）", sn.get("active_days") == 8,
+        check("学习数据：活跃天数 >= 2", (sn.get("active_days") or 0) >= 2,
               f"({sn.get('active_days')})")
         check("学习数据：素材总量已计入 20", sn.get("favorites_total") == 20,
               f"({sn.get('favorites_total')})")
 
         bo = req("/api/bootstrap")
-        check("今日内容仍是 10-07 那篇", (bo.get("date") or "") == "2026-10-07", f"({bo.get('date')})")
-        check("历史列表 7 天（真题不在时间线里）", len(bo.get("history", [])) == 7,
+        # 种子的日期是写死的（都在过去），所以「今天」本来就没有文章：
+        # bootstrap 返回今天、两篇种子都在历史里，这才是正常状态。
+        check("默认落在今天（今天没文章，种子都在历史里）",
+              (bo.get("date") or "") == date.today().isoformat(),
+              f"({bo.get('date')} vs {date.today().isoformat()})")
+        check("历史列表 2 天（种子就两篇）", len(bo.get("history", [])) == 2,
               f"({len(bo.get('history', []))})")
         check("顶部复习角标数据显示 4", (bo.get("meta") or {}).get("review_due") == 4)
 
@@ -448,7 +472,20 @@ def main() -> None:
         else:
             n = r["notes"]
             check("素材库 20 张卡都渲染出来", n.get("mat_items") == 20, f"({n.get('mat_items')})")
-            check("三个库标签在（全部/作文/阅读）", n.get("lib_tabs") == 3)
+            check("三个库标签在（全部/作文/阅读）", n.get("lib_tabs") == 3, f"({n.get('lib_tabs')})")
+            check("类型分栏 5 类 + 全部（词汇/短语/句型/长难句/语法）",
+                  n.get("type_tabs") == 6
+                  and n.get("type_labels") == ",vocab,phrase,pattern,sentence,grammar",
+                  f"({n.get('type_tabs')} / {n.get('type_labels')})")
+            check("点「句型」只剩 3 条", n.get("after_pattern") == 3, f"({n.get('after_pattern')})")
+            check("点「短语」只剩 17 条", n.get("after_phrase") == 17, f"({n.get('after_phrase')})")
+            check("点「语法」0 条 + 有「不进复习」说明",
+                  n.get("after_grammar") == 0 and n.get("grammar_note") == 1,
+                  f"({n.get('after_grammar')} / note {n.get('grammar_note')})")
+            check("语法栏不摆位置筛选（位置对语法没意义）",
+                  n.get("grammar_pos_filters") == 0, f"({n.get('grammar_pos_filters')})")
+            check("切回「全部」回到 20 条", n.get("back_all") == 20, f"({n.get('back_all')})")
+            check("每张卡都带类型标签", n.get("type_chips") == 20, f"({n.get('type_chips')})")
             check("位置筛选项齐全", (n.get("pos_filters") or 0) >= 5, f"({n.get('pos_filters')})")
             check("文体筛选项齐全", (n.get("genre_filters") or 0) >= 5, f"({n.get('genre_filters')})")
             check("等级标记 / 主题 / 标签都渲染出来",
@@ -482,6 +519,10 @@ def main() -> None:
             check("每张卡都带位置/等级标记",
                   n.get("pos_chips") == 4 and n.get("lv_chips") == 4,
                   f"({n.get('pos_chips')}/{n.get('lv_chips')})")
+            check("复习页分了「表达」一栏（种子数据里都是短语/句型，没有单词）",
+                  n.get("rev_groups") == 1 and "表达" in (n.get("rev_group_titles") or ""),
+                  f"({n.get('rev_groups')} / {n.get('rev_group_titles')!r})")
+            check("复习页写明「只有词汇和表达」", n.get("rev_scope_note") == 1)
             check("「看答案」点开后答案真的显示", n.get("ans_shown") == 1)
             check("答案里有中文释义", (n.get("ans_cn_len") or 0) >= 6, f"({n.get('ans_cn_len')} 字)")
             check("答案里有使用建议", n.get("ans_usage") == 1)
@@ -492,7 +533,7 @@ def main() -> None:
             check("文章页回传了报告", False, "(看 data/_seed_en_article_ipad.png 定位)")
         else:
             n = r["notes"]
-            check("历史页 7 天 + 两个页签", n.get("hist_items") == 7 and n.get("hist_tabs") == 2,
+            check("历史页 2 天 + 两个页签", n.get("hist_items") == 2 and n.get("hist_tabs") == 2,
                   f"({n.get('hist_items')}/{n.get('hist_tabs')})")
             check(f"历史里有 {NEW_DATE} 这一天", n.get("has_new_day") == 1)
             check("点开后打开的是新文章", n.get("title_ok") == 1)
@@ -505,17 +546,24 @@ def main() -> None:
             check("翻译 5 段", n.get("trans_rows") == 5, f"({n.get('trans_rows')})")
             check("每段都带「翻译要点」", n.get("trans_notes") == 5, f"({n.get('trans_notes')})")
             check("词汇 10 条", n.get("vocab_rows") == 10, f"({n.get('vocab_rows')})")
-            check("词汇计数文案是「10 个」", (n.get("vocab_sub") or "") == "10 个", f"({n.get('vocab_sub')!r})")
-            check("长难句 3 句", n.get("sent_rows") == 3, f"({n.get('sent_rows')})")
-            check("逻辑：5 段结构 + 阅读提示", n.get("logic_paras") == 5 and (n.get("logic_tips") or 0) >= 3,
-                  f"({n.get('logic_paras')}/{n.get('logic_tips')})")
+            check("词汇计数文案带「10 个」与前缀", (n.get("vocab_sub") or "").startswith("10 个"),
+                  f"({n.get('vocab_sub')!r})")
+            check("词汇区写明释义按考研高频义", n.get("vocab_exam_hint") == 1)
+            check("长难句 3 句 + 语法 2 条（合并板块里两个小节）",
+                  n.get("sent_rows") == 3 and n.get("gram_rows") == 2 and n.get("sg_sections") == 2,
+                  f"({n.get('sent_rows')}/{n.get('gram_rows')}/{n.get('sg_sections')})")
+            check("解析区分了两组（日常必记 / 闲时精读）",
+                  n.get("ana_groups") == 2
+                  and "日常必记" in (n.get("ana_titles") or "")
+                  and "闲时精读" in (n.get("ana_titles") or ""),
+                  f"({n.get('ana_groups')} / {n.get('ana_titles')!r})")
+            check("撤掉的阅读逻辑 / 命题视角入口没有回来",
+                  (n.get("logic_present") or 0) == 0 and (n.get("exam_present") or 0) == 0,
+                  f"({n.get('logic_present')}/{n.get('exam_present')})")
             check("写作表达 5 条", n.get("write_items") == 5, f"({n.get('write_items')})")
             check("每条写作表达都标了位置与文体",
                   n.get("wf_note") == 5 and n.get("wf_genre") == 5,
                   f"({n.get('wf_note')}/{n.get('wf_genre')})")
-            check("命题视角 3 个设题点渲染出来", n.get("ef_items") == 3, f"({n.get('ef_items')})")
-            check("干扰项卡片渲染出来（6 张）", n.get("ef_traps") == 6, f"({n.get('ef_traps')})")
-            check("命题视角标题行有内容", (n.get("ef_pattern") or "") != "")
             check("没有公式退化成源码", (n.get("mtex_fallback") or 0) == 0, f"({n.get('mtex_fallback')})")
             check("文章页平板档无横向溢出", n.get("overflow") == "无", f"({n.get('overflow')})")
     finally:

@@ -1,10 +1,14 @@
-"""阅读笔记 / 语法积累库 / 复习阶梯 的回归测试。
+"""阅读笔记 / 语法积累库 / 复习范围 的回归测试。
 
 覆盖用户 2026-10-11 提的这几条：
   · 划选填充 → 自动记入独立笔记库（同篇同内容只记一次）
   · 笔记要能**不断复现**：进复习队列、按阶梯推进
   · 语法要有单独的积累库
   · 词汇默认「不认识」（mastery 默认 1）
+
+覆盖用户 2026-10-14 补的这条：
+  · 复习提醒**只针对词汇和表达**：长难句（item_type='sentence'）和语法积累
+    （library='grammar'）留在库里随时查阅，不进每日复习队列。
 
 ⚠️ 全部跑在临时目录里的**假库**上：不碰 data/ 里的真实账号与学习记录。
 
@@ -109,7 +113,38 @@ def main() -> int:
             checks.append(("语法点不重复收", g2.get("created") is False, str(g2)))
             lib = notes.grammar_library()
             checks.append(("语法库能列出", len(lib) == 1 and lib[0]["content"] == "倒装句", str(len(lib))))
-            checks.append(("语法点也进复习节奏", bool(lib[0].get("next_review")), str(lib[0].get("next_review"))))
+            # 用户 2026-10-14：复习提醒只针对词汇和表达，长难句和语法先不管
+            checks.append(("语法点不入复习队列（next_review 为空）",
+                           (lib[0].get("next_review") or "") == "", str(lib[0].get("next_review"))))
+
+            # ---- 复习范围：只有词汇和表达进队列 ----
+            # 四条收藏都设成「昨天到期」，用来验证过滤是真的按类型在挡
+            def add_fav(item_type: str, content: str, library: str = "reading") -> int:
+                return db.execute(
+                    "INSERT INTO favorites(user_id,item_type,content,cn,example,tags,source_article_id,"
+                    "library,category,position,genre,function,level,usage,auto,confidence,"
+                    "created_at,updated_at,review_count,next_review) "
+                    "VALUES(?,?,?,?,?,'[]',NULL,?,'通用','universal','universal','','B','',0,0.0,"
+                    "datetime('now','localtime'),datetime('now','localtime'),0,"
+                    "date('now','localtime','-1 day'))",
+                    (UID, item_type, content, "中文释义", "example", library),
+                )
+
+            add_fav("vocab", "TEST-vocab")
+            add_fav("phrase", "TEST-phrase")
+            add_fav("sentence", "TEST-sentence")          # 长难句：不进复习
+            add_fav("grammar", "TEST-grammar", "grammar")  # 语法：不进复习（老数据带日期也不进）
+
+            due = db.review_due()
+            due_contents = {r["content"] for r in due}
+            checks.append(("词汇收藏进复习队列", "TEST-vocab" in due_contents, str(sorted(due_contents))))
+            checks.append(("短语收藏进复习队列", "TEST-phrase" in due_contents, str(sorted(due_contents))))
+            checks.append(("长难句不进复习队列", "TEST-sentence" not in due_contents, str(sorted(due_contents))))
+            checks.append(("语法不进复习队列（带日期的老数据也挡）",
+                           "TEST-grammar" not in due_contents, str(sorted(due_contents))))
+            rstats = db.review_stats()
+            checks.append(("复习统计只数词汇与表达（due/in_cycle 都是 2）",
+                           rstats["due"] == 2 and rstats["in_cycle"] == 2, str(rstats)))
 
             # ---- 词汇默认「不认识」 ----
             aid = db.execute(

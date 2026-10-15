@@ -14,7 +14,7 @@
 <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/icon-16.png">
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/icon-180.png">
 <link rel="stylesheet" href="/static/katex/katex.min.css">
-<link rel="stylesheet" href="/static/style.css?v=20261012-ans1">
+<link rel="stylesheet" href="/static/style.css?v=20261015-en1">
 </head>
 <body>
 
@@ -102,7 +102,7 @@
 
     <div class="gate" id="gate">
       <button class="btn primary big" id="btnReveal">我读完了，展开解析 →</button>
-      <p class="muted small">展开后可以看到翻译、词汇、长难句、语法、阅读逻辑与写作任务</p>
+      <p class="muted small">展开后先看中文翻译对答案，再记词汇与表达（这两样会进每日复习）；长难句和语法属于闲时精读</p>
     </div>
 
     <!-- ============ 解析区 ============ -->
@@ -113,11 +113,19 @@
         <span class="muted small" id="analysisNote"></span>
       </div>
 
-      <!-- 中文翻译 -->
+      <!-- 中文翻译：读完文章先对照这一块，确认自己理解对了没有（学习材料） -->
       <details class="acc card" id="accTrans">
         <summary><span class="ico">🇨🇳</span><span class="acc-title">中文翻译</span><span class="acc-sub">逐段对照 · 默认折叠</span></summary>
         <div class="acc-body" id="transBody"></div>
       </details>
+
+      <!-- 用户 2026-10-14 的口径：词汇、短语、作文素材才是「知识点」，日常必记、会进复习；
+           长难句和语法是「闲时精读」，想深挖时再看，不进复习队列。
+           两块用分组标题分开，顺序也照这个优先级摆（必记在前、精读在后）。 -->
+      <div class="ana-group">
+        <span class="ana-group-title">🎯 日常必记</span>
+        <span class="ana-group-note">词汇 · 表达 —— 会进每日复习</span>
+      </div>
 
       <!-- 今日词汇 -->
       <details class="acc card" id="accVocab" open>
@@ -133,7 +141,18 @@
         </div>
       </details>
 
-      <!-- 长难句 + 语法（合并） -->
+      <!-- 写作表达（短语 / 句型，也属日常必记） -->
+      <details class="acc card" id="accWrite">
+        <summary><span class="ico">📝</span><span class="acc-title">今日写作表达</span><span class="acc-sub" id="writeSub"></span></summary>
+        <div class="acc-body" id="writeList"></div>
+      </details>
+
+      <div class="ana-group">
+        <span class="ana-group-title">📖 闲时精读</span>
+        <span class="ana-group-note">长难句 · 语法 —— 不进每日复习</span>
+      </div>
+
+      <!-- 长难句 + 语法（合并：用户 2026-10-14「长难句和语法可以放在一起」） -->
       <details class="acc card" id="accSentGram">
         <summary><span class="ico">📐</span><span class="acc-title">长难句与语法</span><span class="acc-sub" id="sentGramSub">闲时精读</span></summary>
         <div class="acc-body" id="sentGramList"></div>
@@ -141,12 +160,6 @@
 
       <!-- 阅读逻辑 / 命题视角：用户 2026-10-11 明确「暂时不需要」，先撤掉入口。
            数据仍在库里（articles.logic / exam_focus），以后想要随时能接回来。 -->
-
-      <!-- 写作表达 -->
-      <details class="acc card" id="accWrite">
-        <summary><span class="ico">📝</span><span class="acc-title">今日写作表达</span><span class="acc-sub" id="writeSub"></span></summary>
-        <div class="acc-body" id="writeList"></div>
-      </details>
 
       <!-- 仿写 -->
       <section class="card imitate" id="imitateCard">
@@ -350,7 +363,7 @@
 <div class="toast" id="toast" hidden></div>
 
 <script src="/static/katex/katex.min.js"></script>
-<script src="/static/notes.js?v=20261012-ans1"></script>
-<script src="/static/app.js?v=20261012-ans1"></script>
+<script src="/static/notes.js?v=20261015-en1"></script>
+<script src="/static/app.js?v=20261015-en1"></script>
 </body>
 </html>

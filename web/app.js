@@ -422,7 +422,7 @@ function renderVocab(list) {
   /* 用户 2026-10-11 的口径：这些词**默认都按「不认识」给我**，
      由我自己挑哪些已经掌握 —— 所以列表默认全是不认识态，点一下就改。 */
   box.innerHTML = `<p class="muted small" style="margin:0 0 8px">
-      默认都按「不认识」收着。已经会的直接点「已掌握」，就不会再占你的待攻克数。
+      释义按<b>考研真题的高频义</b>给（不是词典的全部义项）。默认都按「不认识」收着，已经会的直接点「已掌握」，就不会再占你的待攻克数。
     </p>` + list.map(v => `
     <div class="v-item ${MASTERY_CLASS[v.mastery] || ""}" data-vid="${v.id}">
       <div class="v-head">
@@ -1366,27 +1366,48 @@ function renderReview() {
     </div>
     <p class="muted small" style="line-height:1.8">
       先只看英文，回忆它的意思和用法，再点「看答案」自测。<br>
-      记住了间隔会拉长（${REV_INTERVAL_TXT}），忘记了明天再见。收藏即入复习节奏。
+      记住了间隔会拉长（${REV_INTERVAL_TXT}），忘记了明天再见。收藏即入复习节奏。<br>
+      这里只有<b>词汇</b>和<b>表达</b>；长难句和语法留在素材库里随时翻，不每天提醒。
     </p>`;
   if (!REV.items.length) {
     box.innerHTML = head +
       `<p class="center" style="margin:26px 0;font-size:14px">今天没有要复习的素材 🎉</p>`;
     return;
   }
-  box.innerHTML = head + REV.items.map(revCard).join("");
+  /* 用户 2026-10-14：复习只针对「词汇」和「表达」。
+     后端已经过滤掉长难句和语法（db._NOT_IN_REVIEW），这里再把剩下的分成两栏，
+     一眼能看出今天要复习的是单词还是短语/句型/笔记。 */
+  const isVocab = it => it.src !== "note" && (it.item_type || "") === "vocab";
+  let seq = 0;
+  const section = (title, hint, list) => (!list.length ? "" : `
+    <div class="rev-group">
+      <div class="rev-group-head">
+        <span class="rev-group-title">${title}</span>
+        <span class="muted small">${list.length} 条${hint}</span>
+      </div>
+      ${list.map(it => revCard(it, seq++)).join("")}
+    </div>`);
+  box.innerHTML = head
+    + section("🔤 词汇", " · 来自文章里的今日词汇与收藏", REV.items.filter(isVocab))
+    + section("✍️ 表达", " · 短语 / 句型 / 阅读笔记", REV.items.filter(it => !isVocab(it)));
 }
 
 function revCard(it, i) {
   const rc = it.review_count || 0;
   const lv = it.level || "B";
   const isNote = it.src === "note";
+  const isVocab = !isNote && (it.item_type || "") === "vocab";
+  // 单词不写作文，位置/文体/等级这些标签对它没意义，换成「词汇」标签
+  const plain = isNote || isVocab;
   return `
     <div class="rev-card" data-id="${it.id}" data-src="${isNote ? "note" : "fav"}">
       <div class="rev-top">
         <span class="rev-idx">${i + 1}</span>
-        ${isNote ? `<span class="chip accent">阅读笔记</span>` : posChip(it.position || "universal")}
-        ${isNote ? "" : genreChip(it.genre)}
-        ${isNote ? "" : `<span class="mat-lv lv-${lv}">${lv}</span>`}
+        ${isNote ? `<span class="chip accent">阅读笔记</span>`
+          : isVocab ? `<span class="chip accent">词汇</span>`
+            : posChip(it.position || "universal")}
+        ${plain ? "" : genreChip(it.genre)}
+        ${plain ? "" : `<span class="mat-lv lv-${lv}">${lv}</span>`}
         <span class="rev-due muted">${rc ? `已复习 ${rc} 次` : "第一次复习"}</span>
       </div>
       <div class="rev-en">${esc(it.content)}</div>
@@ -1678,7 +1699,32 @@ function genreChip(g, withMark = true) {
   return `<span class="genre-chip g-${g}" title="${esc(GENRE_HINT[g] || "")}">${m}${GENRE_LABEL[g]}</span>`;
 }
 
-const libState = { library: "", position: "", genre: "", q: "", groupBy: "position", raw: null };
+const libState = { type: "", library: "", position: "", genre: "", q: "", groupBy: "position", raw: null };
+
+/* 素材的「类型」= 用户 2026-10-14 说的「语法在语法一栏、词汇在词汇一栏、长难句在长难句一栏」。
+   数据里是 item_type（vocab | phrase | pattern | sentence | expression | grammar），
+   归类规则只写这一处，筛选和计数都复用它。 */
+const LIB_TYPES = [
+  ["vocab", "🔤 词汇"],
+  ["phrase", "🧩 短语"],
+  ["pattern", "🏗 句型"],
+  ["sentence", "📐 长难句"],
+  ["grammar", "🧠 语法"],
+];
+/* 只有词汇和表达进每日复习（见后端 db._NOT_IN_REVIEW），这里标记出来，
+   免得用户在长难句/语法栏里以为它们也会每天提醒。 */
+const LIB_TYPE_NOTE = {
+  sentence: "长难句属于「闲时精读」，不进每日复习，随时在这里翻。",
+  grammar: "语法积累只供查阅，不进每日复习；点文章里的「＋ 收进语法积累库」就会攒到这里。",
+};
+function libTypeOf(it) {
+  const t = (it.item_type || "").trim();
+  if (t === "grammar" || (it.library || "") === "grammar") return "grammar";
+  if (t === "sentence") return "sentence";
+  if (t === "pattern") return "pattern";
+  if (t === "vocab") return "vocab";
+  return "phrase";   // phrase / expression / 老数据没有 item_type 的，都算短语表达
+}
 
 /* 整页：素材库（内容写进 #pageBody-library） */
 async function loadLibrary() {
@@ -1710,33 +1756,44 @@ function renderLibrary() {
   const all = data.items || [];
   const s = data.summary || {};
 
-  // 1) 先按「库」筛选
-  const byLib = libState.library ? all.filter(i => (i.library || "reading") === libState.library) : all;
-  // 2) 再按「位置」筛选
+  // 1) 先按「类型」筛选（词汇 / 短语 / 句型 / 长难句 / 语法）
+  const byType = libState.type ? all.filter(i => libTypeOf(i) === libState.type) : all;
+  // 2) 再按「库」筛选
+  const byLib = libState.library ? byType.filter(i => (i.library || "reading") === libState.library) : byType;
+  // 3) 再按「位置」筛选
   const byPos = libState.position ? byLib.filter(i => (i.position || "universal") === libState.position) : byLib;
-  // 3) 再按「文体」筛选
+  // 4) 再按「文体」筛选
   const byGenre = libState.genre ? byPos.filter(i => (i.genre || "universal") === libState.genre) : byPos;
-  // 4) 最后按关键词搜索（多词 = AND，跨英文/中文/例句/用法/主题/标签）
+  // 5) 最后按关键词搜索（多词 = AND，跨英文/中文/例句/用法/主题/标签）
   const terms = queryTerms();
   const shown = byGenre.filter(i => hitSearch(i, terms));
 
-  const libCount = k => all.filter(i => (i.library || "reading") === k).length;
+  const isGrammarTab = libState.type === "grammar";
+  const libCount = k => byType.filter(i => (i.library || "reading") === k).length;
   const posCount = p => byLib.filter(i => (i.position || "universal") === p).length;
   const genreCount = g => byPos.filter(i => (i.genre || "universal") === g).length;
+  const typeCount = k => all.filter(i => libTypeOf(i) === k).length;
 
-  const tabs = [["", "全部", all.length],
+  const typeTabs = [["", "全部", all.length]]
+    .concat(LIB_TYPES.map(([k, label]) => [k, label, typeCount(k)]))
+    .map(([k, label, n]) => `<button class="lib-tab lib-type ${libState.type === k ? "on" : ""}" data-type="${k}">${label}<i>${n}</i></button>`).join("");
+
+  const tabs = [["", "全部", byType.length],
     ["writing", "📝 作文素材库", libCount("writing")],
     ["reading", "📖 阅读积累库", libCount("reading")]]
     .map(([k, label, n]) => `<button class="lib-tab ${libState.library === k ? "on" : ""}" data-lib="${k}">${label}<i>${n}</i></button>`).join("");
 
-  const posChips = [`<button class="pos-filter ${!libState.position ? "on" : ""}" data-pos="">全部位置</button>`]
+  // 语法栏里「位置/文体」没有意义（它不写作文），直接按语法分类（句法/词法）看
+  const grp = isGrammarTab ? "category" : libState.groupBy;
+
+  const posChips = isGrammarTab ? "" : [`<button class="pos-filter ${!libState.position ? "on" : ""}" data-pos="">全部位置</button>`]
     .concat(POS_ORDER.map(p => {
       const n = posCount(p);
       if (!n) return "";
       return `<button class="pos-filter ${libState.position === p ? "on" : ""}" data-pos="${p}">${POS_LABEL[p]}<i>${n}</i></button>`;
     })).join("");
 
-  const genreChips = [`<button class="genre-filter ${!libState.genre ? "on" : ""}" data-genre="">全部文体</button>`]
+  const genreChips = isGrammarTab ? "" : [`<button class="genre-filter ${!libState.genre ? "on" : ""}" data-genre="">全部文体</button>`]
     .concat(GENRE_ORDER.map(g => {
       const n = genreCount(g);
       if (!n) return "";
@@ -1746,24 +1803,24 @@ function renderLibrary() {
   // 分组
   const groups = {};
   const groupKeyOf = it => (
-    libState.groupBy === "position" ? (it.position || "universal")
-      : libState.groupBy === "genre" ? (it.genre || "universal")
+    grp === "position" ? (it.position || "universal")
+      : grp === "genre" ? (it.genre || "universal")
         : (it.category || "通用表达")
   );
   shown.forEach(it => {
     const key = groupKeyOf(it);
     (groups[key] = groups[key] || []).push(it);
   });
-  const order = libState.groupBy === "position" ? POS_ORDER
-    : libState.groupBy === "genre" ? GENRE_ORDER
+  const order = grp === "position" ? POS_ORDER
+    : grp === "genre" ? GENRE_ORDER
       : [...CAT_ORDER, ...Object.keys(groups).filter(k => !CAT_ORDER.includes(k))];
   const keys = order.filter(k => groups[k] && groups[k].length);
   // 兜底：order 里没覆盖到的分组
   Object.keys(groups).forEach(k => { if (!keys.includes(k)) keys.push(k); });
 
-  const groupNote = libState.groupBy === "position"
+  const groupNote = grp === "position"
     ? "按「用在作文的位置」分组"
-    : libState.groupBy === "genre"
+    : grp === "genre"
       ? "按「文体」分组"
       : "按「主题分类」分组";
 
@@ -1777,21 +1834,27 @@ function renderLibrary() {
 
   const emptyMsg = terms.length
     ? `没有匹配「${esc(libState.q)}」的素材。试试更短的关键词，或点右上角的 ✕ 清空搜索。`
-    : "这里还没有素材。阅读时点「☆ 收藏」或「加入作文素材库」，AI 会自动判断该进哪个库、用在作文的哪一段，以及它属于什么文体。";
+    : libState.type === "grammar"
+      ? "语法积累库还是空的。读文章时在「长难句与语法」里点「＋ 收进语法积累库」，语法点就会攒到这里。"
+      : libState.type === "sentence"
+        ? "还没有收藏过长难句。读文章时展开「长难句与语法」，点「☆ 收藏这句」就会进这里。"
+        : libState.type === "vocab"
+          ? "还没有收藏过单词。读文章时在「今日词汇」里点「☆ 收藏」，单词就会进这里。"
+          : "这里还没有素材。阅读时点「☆ 收藏」或「加入作文素材库」，AI 会自动判断该进哪个库、用在作文的哪一段，以及它属于什么文体。";
 
   const body = keys.length
     ? keys.map(k => `
       <div class="lib-group">
         <div class="lib-group-head">
-          ${libState.groupBy === "position"
+          ${grp === "position"
             ? `<span class="pos-chip pos-${k}">${POS_LABEL[k] || k}</span>`
-            : libState.groupBy === "genre"
+            : grp === "genre"
               ? genreChip(k)
               : `<span class="lib-cat-name">${esc(k)}</span>`}
           <span class="muted small">${groups[k].length} 条</span>
         </div>
-        ${libState.groupBy === "position" && POS_USAGE[k] ? `<div class="lib-group-note">${POS_USAGE[k]}</div>` : ""}
-        ${libState.groupBy === "genre" && GENRE_HINT[k] ? `<div class="lib-group-note">${GENRE_HINT[k]}</div>` : ""}
+        ${grp === "position" && POS_USAGE[k] ? `<div class="lib-group-note">${POS_USAGE[k]}</div>` : ""}
+        ${grp === "genre" && GENRE_HINT[k] ? `<div class="lib-group-note">${GENRE_HINT[k]}</div>` : ""}
         ${groups[k].map(matCard).join("")}
       </div>`).join("")
     : `<p class="muted small" style="margin-top:18px;line-height:1.75">${emptyMsg}</p>`;
@@ -1808,6 +1871,8 @@ function renderLibrary() {
 
   $("#pageBody-library").innerHTML = `
     ${summaryBar}
+    <div class="lib-tabs lib-type-tabs">${typeTabs}</div>
+    ${LIB_TYPE_NOTE[libState.type] ? `<p class="muted small lib-type-note">${LIB_TYPE_NOTE[libState.type]}</p>` : ""}
     <div class="lib-tabs">${tabs}</div>
     <div class="lib-search">
       <span class="lib-search-ico">🔍</span>
@@ -1817,12 +1882,14 @@ function renderLibrary() {
       ${libState.q ? `<button class="lib-search-clear" data-qclear title="清空">✕</button>` : ""}
     </div>
     <div class="lib-toolbar">
-      <div class="pos-filters">${posChips}</div>
-      <div class="pos-filters genre-filters">${genreChips}</div>
+      ${isGrammarTab ? "" : `<div class="pos-filters">${posChips}</div>
+      <div class="pos-filters genre-filters">${genreChips}</div>`}
       <div class="group-switch">
-        <button class="${libState.groupBy === "position" ? "on" : ""}" data-group="position">按位置</button>
-        <button class="${libState.groupBy === "genre" ? "on" : ""}" data-group="genre">按文体</button>
-        <button class="${libState.groupBy === "category" ? "on" : ""}" data-group="category">按主题</button>
+        ${isGrammarTab
+          ? `<button class="on" data-group="category">按语法分类</button>`
+          : `<button class="${grp === "position" ? "on" : ""}" data-group="position">按位置</button>
+        <button class="${grp === "genre" ? "on" : ""}" data-group="genre">按文体</button>
+        <button class="${grp === "category" ? "on" : ""}" data-group="category">按主题</button>`}
       </div>
     </div>
     <div class="lib-statline">
@@ -1830,16 +1897,16 @@ function renderLibrary() {
         ${terms.length ? `搜索 <b>${esc(libState.q)}</b> · 命中 <b>${shown.length}</b> 条`
                        : `${groupNote} · 当前显示 <b>${shown.length}</b> 条`}
       </span>
-      ${gDist.length ? `<span class="lib-genre-dist"><span class="gd-label">文体分布</span>${gDist.map(([g, mark, label, n]) =>
+      ${gDist.length && !isGrammarTab ? `<span class="lib-genre-dist"><span class="gd-label">文体分布</span>${gDist.map(([g, mark, label, n]) =>
         `<span class="gd-item"><span class="genre-chip g-${g}">${mark} ${label}</span><b>${n}</b></span>`).join("")}</span>` : ""}
     </div>
     ${body}
-    <div class="lib-legend">
+    ${isGrammarTab ? "" : `<div class="lib-legend">
       <div class="w-group-title">位置说明</div>
       ${POS_ORDER.map(p => `<div class="lib-legend-row"><span class="pos-chip pos-${p}">${POS_LABEL[p]}</span><span>${POS_USAGE[p]}</span></div>`).join("")}
       <div class="w-group-title" style="margin-top:14px">文体说明</div>
       ${GENRE_ORDER.map(g => `<div class="lib-legend-row">${genreChip(g)}<span>${GENRE_HINT[g]}</span></div>`).join("")}
-    </div>`;
+    </div>`}`;
 
   if (keepFocus) {
     const n = $("#libSearch");
@@ -1855,16 +1922,24 @@ function matCard(it) {
   const aiPct = it.auto && it.confidence ? `${Math.round(it.confidence * 100)}%` : "";
   const rc = it.review_count || 0;
   const nr = it.next_review || "";
-  const revLine = !nr
-    ? `<span class="mat-rev off">已移出复习</span>`
-    : rc >= 6
-      ? `<span class="mat-rev done">已巩固 · 复习 ${rc} 次</span>`
-      : `<span class="mat-rev">复习 ${rc} 次 · 下次 ${esc(nr)}</span>`;
+  const tp = libTypeOf(it);
+  const typeLabel = (LIB_TYPES.find(([k]) => k === tp) || ["", "素材"])[1];
+  /* 长难句 / 语法是「闲时精读」：不进每日复习，所以卡片上不摆位置/文体这些作文标签，
+     也不给「重新加入复习」—— 免得让人以为它们本该每天提醒（见 db._NOT_IN_REVIEW）。 */
+  const quiet = tp === "sentence" || tp === "grammar";
+  const revLine = quiet
+    ? `<span class="mat-rev off">不进每日复习</span>`
+    : !nr
+      ? `<span class="mat-rev off">已移出复习</span>`
+      : rc >= 6
+        ? `<span class="mat-rev done">已巩固 · 复习 ${rc} 次</span>`
+        : `<span class="mat-rev">复习 ${rc} 次 · 下次 ${esc(nr)}</span>`;
   return `
     <div class="mat-item" data-id="${it.id}">
       <div class="mat-top">
-        <span class="pos-chip pos-${pos}">${POS_LABEL[pos] || pos}</span>
-        ${genreChip(gen)}
+        <span class="mat-type t-${tp}">${typeLabel}</span>
+        ${quiet ? "" : `<span class="pos-chip pos-${pos}">${POS_LABEL[pos] || pos}</span>
+        ${genreChip(gen)}`}
         <span class="mat-cat">${esc(it.category || "通用表达")}</span>
         <span class="mat-lv lv-${lv}" title="${LEVEL_LABEL[lv] || ""}">${lv}</span>
         <span class="mat-auto ${it.auto ? "" : "manual"}">${it.auto ? `AI 归类 ${aiPct}` : "手动 / 规则"}</span>
@@ -1879,19 +1954,19 @@ function matCard(it) {
         <span class="mat-date">${esc((it.created_at || "").slice(0, 10))}</span>
       </div>
       <div class="mat-actions">
-        <button class="btn tiny" data-act="reclass">↻ AI 重新归类</button>
-        <button class="btn tiny" data-act="retag">调整分类</button>
-        ${nr ? "" : `<button class="btn tiny" data-act="readd">↻ 重新加入复习</button>`}
+        ${quiet ? "" : `<button class="btn tiny" data-act="reclass">↻ AI 重新归类</button>
+        <button class="btn tiny" data-act="retag">调整分类</button>`}
+        ${!quiet && !nr ? `<button class="btn tiny" data-act="readd">↻ 重新加入复习</button>` : ""}
         <button class="btn tiny warnish" data-act="del">删除</button>
       </div>
-      <div class="mat-retag" hidden>
+      ${quiet ? "" : `<div class="mat-retag" hidden>
         <div class="retag-row"><span class="retag-lbl">位置</span>
           ${POS_ORDER.map(p => `<button class="btn tiny ${pos === p ? "on" : ""}" data-set-pos="${p}">${POS_LABEL[p]}</button>`).join("")}
         </div>
         <div class="retag-row"><span class="retag-lbl">文体</span>
           ${GENRE_ORDER.map(g => `<button class="btn tiny ${gen === g ? "on" : ""}" data-set-genre="${g}">${GENRE_LABEL[g]}</button>`).join("")}
         </div>
-      </div>
+      </div>`}
     </div>`;
 }
 
@@ -1899,6 +1974,14 @@ function matCard(it) {
 document.addEventListener("click", async e => {
   if (e.target.closest("[data-qclear]")) {
     libState.q = "";
+    renderLibrary();
+    return;
+  }
+  const typeBtn = e.target.closest("[data-type]");
+  if (typeBtn) {
+    libState.type = typeBtn.dataset.type;
+    libState.position = "";
+    libState.genre = "";
     renderLibrary();
     return;
   }
