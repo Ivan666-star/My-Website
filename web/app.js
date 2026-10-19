@@ -1330,7 +1330,7 @@ async function loadStats() {
 }
 
 /* ---------------- 今日复习（间隔重复） ---------------- */
-const REV = { items: [], stats: {}, masteredAt: 7 };
+const REV = { items: [], stats: {}, masteredAt: 7, rest: false };
 
 $("#btnReview").addEventListener("click", () => navigate("review"));
 
@@ -1343,6 +1343,8 @@ async function loadReview() {
     if (!isCurrent()) return;
     REV.items = r.items || [];
     REV.stats = r.stats || {};
+    /* 周末休息：周六/周日后端给空队列 + rest 标记（2026-10-19 用户口径） */
+    REV.rest = !!(r.rest || (r.stats && r.stats.rest));
     if (r.mastered_at) REV.masteredAt = r.mastered_at;
     renderReview();
     setReviewBadge(REV.stats.due);
@@ -1366,12 +1368,15 @@ function renderReview() {
     </div>
     <p class="muted small" style="line-height:1.8">
       先只看英文，回忆它的意思和用法，再点「看答案」自测。<br>
-      记住了间隔会拉长（${REV_INTERVAL_TXT}），忘记了明天再见。收藏即入复习节奏。<br>
+      记住了间隔会拉长（${REV_INTERVAL_TXT}），忘记了退回起点、明天再见。<br>
+      <b>周末休息</b>：复习只排在工作日，落在周六/周日的顺延到下周一，周末队列为空。<br>
       这里只有<b>词汇</b>和<b>表达</b>；长难句和语法留在素材库里随时翻，不每天提醒。
     </p>`;
   if (!REV.items.length) {
-    box.innerHTML = head +
-      `<p class="center" style="margin:26px 0;font-size:14px">今天没有要复习的素材 🎉</p>`;
+    box.innerHTML = head + (REV.rest
+      ? `<p class="center" style="margin:26px 0;font-size:14px">🌴 周末休息，今天不用复习
+           <br><span class="muted small">周末到期的都攒到周一一起过</span></p>`
+      : `<p class="center" style="margin:26px 0;font-size:14px">今天没有要复习的素材 🎉</p>`);
     return;
   }
   /* 用户 2026-10-14：复习只针对「词汇」和「表达」。
@@ -2779,6 +2784,7 @@ const MATH = {
                          // ⚠️ 两个模块共用引擎但互不相通 —— 列表 / 到期 / 随机刷题都只看本模块的科目
   items: [],
   due: [],
+  rest: false,           // 周末休息：周六/周日没有到期错题（见 db.is_rest_day）
   dueAnswers: new Map(), // 已揭示的到期题解析；未揭示前接口不返回解法
   f: { subject: "", topic: "", kind: "", q: "", cycle: "" },
   openId: null,          // 列表里展开了哪一道
@@ -3090,6 +3096,8 @@ async function loadMath() {
     MATH.meta = meta;
     MATH.items = list.items || [];
     MATH.due = due.items || [];
+    /* 周末休息：周六/周日后端给空队列 + rest 标记（2026-10-19 用户口径） */
+    MATH.rest = !!(due.rest || (meta.stats && meta.stats.rest));
     setMathLibBadge(MATH.due.length);                 // 页内角标 = 当前模块
     if (module === "math") setMathBadge(MATH.due.length);  // 🎓 只认数学，别被信号改掉
     renderMath();
@@ -4028,6 +4036,8 @@ function renderDrill() {
   const box = $("#mathDrillWrap");
   if (!box) return;
   const p = MATH.drill;
+  /* 周末休息：周六/周日没有到期队列，后端给空列表 + rest 标记 →
+     这里明说「周末休息」，别让人以为只是「今天恰好没有错题」（2026-10-19）。 */
   const due = MATH.due.length ? `
     <section class="math-due" aria-label="今天该复习的错题">
       <div class="math-sec-title">今天该复习的错题（${MATH.due.length}）</div>
@@ -4041,7 +4051,14 @@ function renderDrill() {
             <button class="btn small warnish" data-due-res="wrong">❌ 不会做</button>
           </div>
         </div>`).join("")}
-    </section>` : "";
+    </section>` : (MATH.rest ? `
+    <section class="math-due" aria-label="周末休息">
+      <div class="math-sec-title">🌴 周末休息</div>
+      <p class="muted small" style="margin:0;line-height:1.8">
+        复习只排在工作日：落在周六/周日的到期日顺延到下周一，周末队列为空，
+        周末攒下的错题周一一起刷。想主动多练几道，随时点顶栏「开始刷题」。
+      </p>
+    </section>` : "");
   if (!p) { box.innerHTML = due; return; }
   const img = p.has_image
     ? `<img class="math-photo" src="/api/math/problems/${p.id}/image" alt="原题照片">` : "";

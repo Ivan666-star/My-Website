@@ -14,11 +14,13 @@
   · 笔记**收藏即入复习节奏**：next_review = 次日，和素材库同一套
     1 → 2 → 4 → 7 → 15 → 30 → 60 天阶梯（间隔常量在 db.py，别在这里另写一份）。
     笔记记的是划选出来的词和短语，属于「表达」，所以照旧进复习。
+  · 周末休息（用户 2026-10-19）：复习日只排在工作日，落在周六/周日顺延到下周一，
+    周六/周日当天队列为空 —— 所有落点都走 db.review_day()，别自己算日期。
 """
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import date
 
 from . import db
 
@@ -85,9 +87,9 @@ def add_note(
                                      para_index,char_start,
                                      created_at,updated_at,review_count,next_review)
            VALUES(?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'),datetime('now','localtime'),
-                  0,date('now','localtime','+1 day'))""",
+                  0,?)""",
         (uid, article_id, doc_date or "", k, text, cn or "", note or "", c, context or "",
-         para_index, char_start),
+         para_index, char_start, db.review_day(1)),
     )
     db.log_event("note_added", nid, {"kind": k, "color": c, "len": len(text)})
     row = db.query_one("SELECT * FROM reading_notes WHERE id=?", (nid,))
@@ -149,6 +151,7 @@ def notes_for_article(article_id: int) -> list[dict]:
 def notes_stats() -> dict:
     w, a = db.scope()
     today = db.today_str()
+    rest = db.is_rest_day()
     due = db.query_one(
         f"SELECT COUNT(*) c FROM reading_notes WHERE {w} AND NOT ({_NOT_IN_CYCLE}) AND next_review<=?",
         (*a, today))
@@ -159,7 +162,9 @@ def notes_stats() -> dict:
         (*a, db.MASTERED_AT))
     total = db.query_one(f"SELECT COUNT(*) c FROM reading_notes WHERE {w}", a)
     return {
-        "due": due["c"] if due else 0,
+        # 周末休息：队列是空的（见 db.is_rest_day），所以到期数按 0 报
+        "due": 0 if rest else (due["c"] if due else 0),
+        "rest": rest,
         "in_cycle": in_cycle["c"] if in_cycle else 0,
         "mastered": mastered["c"] if mastered else 0,
         "total": total["c"] if total else 0,
@@ -168,6 +173,8 @@ def notes_stats() -> dict:
 
 def notes_review_due(limit: int = 200) -> list[dict]:
     """今天该复习的笔记，包成复习卡片同一种形状（多带一个 src=note）。"""
+    if db.is_rest_day():
+        return []
     w, a = db.scope()
     rows = db.query(
         f"SELECT * FROM reading_notes WHERE {w} AND NOT ({_NOT_IN_CYCLE}) AND next_review<=? "
@@ -195,7 +202,10 @@ def notes_review_due(limit: int = 200) -> list[dict]:
 
 
 def notes_apply_review(nid: int, result: str) -> dict | None:
-    """推进一条笔记的复习进度（阶梯与素材库完全一致，见 db.REVIEW_INTERVALS）。"""
+    """推进一条笔记的复习进度（阶梯与素材库完全一致，见 db.REVIEW_INTERVALS）。
+
+    落点一律走 db.review_day()：撞到周末顺延到下周一（周末休息）。
+    """
     w, a = db.scope()
     row = db.query_one(f"SELECT * FROM reading_notes WHERE id=? AND {w}", (int(nid), *a))
     if not row:
@@ -203,17 +213,17 @@ def notes_apply_review(nid: int, result: str) -> dict | None:
     today = date.today()
     rc = row.get("review_count") or 0
     if result == "forgot":
-        rc, nxt = 0, (today + timedelta(days=1)).isoformat()
+        rc, nxt = 0, db.review_day(1, base=today)
     elif result == "known":
         rc = rc + 1
         interval = db.REVIEW_INTERVALS[min(rc - 1, len(db.REVIEW_INTERVALS) - 1)]
-        nxt = (today + timedelta(days=interval)).isoformat()
+        nxt = db.review_day(interval, base=today)
     elif result == "skip":
-        nxt = (today + timedelta(days=1)).isoformat()
+        nxt = db.review_day(1, base=today)
     elif result == "drop":
         nxt = ""
     elif result == "readd":
-        rc, nxt = 0, (today + timedelta(days=1)).isoformat()
+        rc, nxt = 0, db.review_day(1, base=today)
     else:
         raise ValueError(f"未知的复习结果：{result}")
     db.execute(

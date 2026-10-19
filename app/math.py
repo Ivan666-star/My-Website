@@ -18,7 +18,7 @@ import binascii
 import json
 import re
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, Query
@@ -137,6 +137,8 @@ def normalize_math_delims(text: str) -> str:
 # ------------------------------------------------------------
 # ⚠️ MASTERED_AT 一律 = 阶梯长度，不要另写一个数：
 #    第 n 次做对用的是 INTERVALS[n-1]，硬编码 4 会和「已推到 30 天」对不上。
+# ⚠️ 落点一律走 db.review_day()：撞到周六/周日顺延到下周一（用户 2026-10-19
+#    「周末休息」），周六/周日当天的到期队列也是空的（db.is_rest_day）。
 # ============================================================
 REVIEW_INTERVALS = [3, 7, 14, 30, 60]
 MASTERED_AT = len(REVIEW_INTERVALS)
@@ -273,8 +275,9 @@ def create_problem(
     # ⚠️ 以前是拼成「答案：xxx」塞进 solution，和推荐解法混在一列里 —— 用户
     # 2026-10-12 的口径是「只要最终答案，不要解析」，所以答案有自己的位置了。
     answer = normalize_math_delims((answer or "").strip())
-    # 首次复习 = 添加后 3 天（计划书第十四节的「第一次：3天后」）
-    first = (date.today() + timedelta(days=REVIEW_INTERVALS[0])).isoformat()
+    # 首次复习 = 添加后 3 天（计划书第十四节的「第一次：3天后」）；
+    # 撞到周末就顺延到下周一（周末休息）
+    first = db.review_day(REVIEW_INTERVALS[0])
     pid = db.execute(
         "INSERT INTO math_problems (user_id, subject, kind, topic, stem, answer, image_path, "
         "source_note, review_count, next_review, created_at, updated_at) "
@@ -365,8 +368,13 @@ def _filters(subject="", topic="", kind="", q="", cycle="", module=""):
         )
         args += [like, like, like]
     if cycle == "due":
-        parts.append(f"NOT ({_NOT_IN_CYCLE}) AND next_review<=?")
-        args.append(db.today_str())
+        # 周末休息：周六/周日不排复习，到期队列整个为空（见 db.is_rest_day）。
+        # 写 1=0 而不是在调用处提前 return：列表、随机刷题都共用这一条过滤。
+        if db.is_rest_day():
+            parts.append("1=0")
+        else:
+            parts.append(f"NOT ({_NOT_IN_CYCLE}) AND next_review<=?")
+            args.append(db.today_str())
     elif cycle == "in":
         parts.append(f"NOT ({_NOT_IN_CYCLE})")
     elif cycle == "out":
@@ -397,6 +405,7 @@ def random_problem(**kw) -> dict | None:
 
 def stats(module: str = "") -> dict:
     w, a = scope_of()
+    rest = db.is_rest_day()
     # 模块隔离：总量 / 到期 / 已掌握 / 按科目分布，全部只统计这个入口的科目
     subs = MODULES.get(module) or []
     if subs:
@@ -431,11 +440,13 @@ def stats(module: str = "") -> dict:
     )
     return {
         "total": total["c"] if total else 0,
-        "due": due["c"] if due else 0,
+        # 周末休息：到期队列是空的，所以「今日待复习」一律按 0 报（前端据此显示休息）
+        "due": 0 if rest else (due["c"] if due else 0),
+        "rest": rest,
         "mastered": mastered["c"] if mastered else 0,
         "with_image": with_image["c"] if with_image else 0,
         "by_subject": {r["subject"] or "未分类": r["c"] for r in by_subject},
-        "by_subject_due": {r["subject"] or "未分类": r["c"] for r in by_subject_due},
+        "by_subject_due": {} if rest else {r["subject"] or "未分类": r["c"] for r in by_subject_due},
         "today": db.today_str(),
     }
 
@@ -494,16 +505,16 @@ def apply_result(pid: int, result: str) -> dict | None:
     rc = row.get("review_count") or 0
 
     if result == "wrong":
-        rc, nxt = 0, (today + timedelta(days=1)).isoformat()   # 做错 → 回队列，缩短间隔
+        rc, nxt = 0, db.review_day(1, base=today)              # 做错 → 回队列，缩短间隔
     elif result == "right":
         rc = rc + 1
-        nxt = (today + timedelta(days=REVIEW_INTERVALS[min(rc - 1, len(REVIEW_INTERVALS) - 1)])).isoformat()
+        nxt = db.review_day(REVIEW_INTERVALS[min(rc - 1, len(REVIEW_INTERVALS) - 1)], base=today)
     elif result == "skip":
-        nxt = (today + timedelta(days=1)).isoformat()          # 进度不变
+        nxt = db.review_day(1, base=today)                     # 进度不变
     elif result == "drop":
         nxt = ""                                               # 停止提醒；错题记录保留
     else:  # readd
-        rc, nxt = 0, (today + timedelta(days=REVIEW_INTERVALS[0])).isoformat()
+        rc, nxt = 0, db.review_day(REVIEW_INTERVALS[0], base=today)
 
     uid = db.require_user()
     db.execute(
@@ -1007,7 +1018,11 @@ def api_random(subject: str = "", topic: str = "", kind: str = "", cycle: str = 
 
 @router.get("/review/due")
 def api_due(limit: int = 100, module: str = ""):
-    return {"items": list_problems(cycle="due", limit=limit, module=module, with_analysis=False)}
+    # rest = 周末休息：周六/周日没有到期队列，前端据此显示「周末休息」而不是「今天没有」
+    return {
+        "items": list_problems(cycle="due", limit=limit, module=module, with_analysis=False),
+        "rest": db.is_rest_day(),
+    }
 
 
 @router.get("/stats")

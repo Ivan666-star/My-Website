@@ -788,12 +788,12 @@ def save_material(
         )
 
     final_tags = cls.get("tags") or tags or []
+    # 首次复习 = 次日；db.review_day 会把落在周六/周日的顺延到下周一（周末休息）
     fid = db.execute(
         """INSERT INTO favorites(user_id,item_type,content,cn,example,tags,source_article_id,
                                  library,category,position,genre,function,level,usage,
                                  auto,confidence,updated_at,review_count,next_review)
-           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'),0,
-                  date('now','localtime','+1 day'))""",
+           VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now','localtime'),0,?)""",
         (
             db.require_user(),
             item_type, content, cn, example,
@@ -801,6 +801,7 @@ def save_material(
             source_article_id,
             cls["library"], cls["category"], cls["position"], cls["genre"], cls["function"],
             cls["level"], cls["usage"], 1 if cls.get("ai") else 0, float(cls.get("confidence") or 0),
+            db.review_day(1),
         ),
     )
     db.log_event(

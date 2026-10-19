@@ -357,7 +357,9 @@
           date: currentDate(),
         }),
       });
-      if (r.created) toast("已填充并记入阅读笔记，明天会出现在今日复习里");
+      /* 首次复习 = 次日；撞到周六/周日会顺延到下周一（周末休息，见 db.review_day），
+         所以这里不写死「明天」，免得周五填充时说的是周六。 */
+      if (r.created) toast("已填充并记入阅读笔记，之后会出现在今日复习里");
       else toast("这条已经在笔记里了（颜色已更新）");
       if (art && art.id) paintOne(r.note);
       lastMark = r.note || null;      // 记住这次填充，方便马上反悔

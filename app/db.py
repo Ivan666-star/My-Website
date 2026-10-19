@@ -613,6 +613,23 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 幂等：再跑一次也只会命中 0，不会有副作用。
     conn.execute("UPDATE vocab SET mastery=1 WHERE mastery IS NULL OR mastery=0")
 
+    # ---- 7) 复习日不许落在周末（2026-10-19 用户口径：周末休息）----
+    # 以前排期不管星期几，历史数据里可能存着「周六/周日复习」。规则改了之后周末没有
+    # 复习任务，把这些日期统一顺延到周一 —— 否则素材卡上还印着一个「下次 周六」，
+    # 和实际行为对不上。新排的日期由 review_day() 保证，这里只补历史。
+    # 幂等：顺延的结果都是周一，再跑一次不会命中任何行。
+    for _t in ("favorites", "reading_notes", "math_problems"):
+        exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (_t,)
+        ).fetchone()
+        if not exists:
+            continue
+        conn.execute(
+            f"UPDATE {_t} SET next_review=date(next_review,'weekday 1') "
+            "WHERE next_review IS NOT NULL AND next_review<>'' "
+            "AND strftime('%w', next_review) IN ('0','6')"      # 0 = 周日，6 = 周六
+        )
+
 
 _CENTRAL_TABLES = {"users", "sessions", "profile"}
 _TABLE_REF_RE = re.compile(
@@ -1083,6 +1100,8 @@ def active_grammar_weak(limit: int = 6) -> list[dict]:
 #     记得越多次间隔越长，忘一次就退回 1 天。够用，且用户一眼能看懂。
 #   - 收藏即入复习节奏（next_review = 收藏次日），不需要用户额外开启。
 #   - 「不再复习」= next_review 置空串，这条素材就退出循环（素材还在，只是不提醒）。
+#   - 周末休息（2026-10-19）：复习日只排在工作日，落在周六/周日就顺延到周一；
+#     周六/周日当天队列为空。见下面的 is_rest_day / review_day。
 # ------------------------------------------------------------
 REVIEW_INTERVALS = [1, 2, 4, 7, 15, 30, 60]
 
@@ -1099,6 +1118,32 @@ _NOT_IN_CYCLE = "next_review IS NULL OR next_review=''"
 _NOT_IN_REVIEW = "item_type NOT IN ('sentence','grammar') AND COALESCE(library,'')<>'grammar'"
 
 
+# ------------------------------------------------------------
+# 周末休息（用户 2026-10-19：「周末可以不用增加复习任务，周末休息」）
+#
+# 规则只有一条 —— **复习日一律排在工作日**：
+#   · 算出来落在周六/周日的复习日，顺延到下周一（review_day）；
+#   · 周六/周日当天的复习队列整个为空，页面显示「周末休息」（is_rest_day）；
+#   · 周末到期没做的不会丢，周一用 next_review<=今天 一起带出来。
+# 素材库 / 阅读笔记 / 数学错题三个模块共用这两个函数，别再各自写一份。
+# ------------------------------------------------------------
+def is_rest_day(day: date | None = None) -> bool:
+    """周六 / 周日 = 休息日：不排复习任务，也没有复习队列。"""
+    return (day or date.today()).weekday() >= 5
+
+
+def review_day(days: int = 1, *, base: date | None = None) -> str:
+    """从 base（默认今天）往后第 days 天的复习日；落在周末就顺延到下周一。
+
+    间隔本身不变（还是 1 / 2 / 4 / 7 … 天），只是**落点**不许是周六、周日：
+    周六 +2 天、周日 +1 天 → 周一。
+    """
+    d = (base or date.today()) + timedelta(days=int(days))
+    if d.weekday() >= 5:                      # 5 = 周六，6 = 周日
+        d += timedelta(days=7 - d.weekday())
+    return d.isoformat()
+
+
 def _load_tags(rows: list[dict]) -> list[dict]:
     for r in rows:
         try:
@@ -1112,7 +1157,10 @@ def review_due(limit: int = 200) -> list[dict]:
     """今天（含逾期）该复习的素材，最久没碰的排前面。
 
     只收「词汇 + 表达」；长难句和语法积累不在这里（见 _NOT_IN_REVIEW）。
+    周末休息：周六/周日没有复习队列，直接给空的（见 is_rest_day）。
     """
+    if is_rest_day():
+        return []
     w, a = scope()
     rows = query(
         f"SELECT * FROM favorites WHERE {w} AND {_NOT_IN_REVIEW} "
@@ -1125,6 +1173,7 @@ def review_due(limit: int = 200) -> list[dict]:
 
 def review_stats() -> dict:
     today = today_str()
+    rest = is_rest_day()
     w, a = scope()
     due = query_one(
         f"SELECT COUNT(*) c FROM favorites WHERE {w} AND {_NOT_IN_REVIEW} "
@@ -1141,7 +1190,9 @@ def review_stats() -> dict:
     )
     total = query_one(f"SELECT COUNT(*) c FROM favorites WHERE {w}", a)
     return {
-        "due": due["c"] if due else 0,
+        # 周末休息：队列是空的，所以「今日待复习」按 0 报，前端据此显示「周末休息」
+        "due": 0 if rest else (due["c"] if due else 0),
+        "rest": rest,
         "in_cycle": in_cycle["c"] if in_cycle else 0,
         "mastered": mastered["c"] if mastered else 0,
         "total": total["c"] if total else 0,
@@ -1158,6 +1209,7 @@ def review_apply(fid: int, result: str) -> dict | None:
       skip   稍后再说 → 推到明天，进度不变
       drop   不再复习 → 退出循环（素材保留）
       readd  重新加入 → 回到 1 天后的节奏
+    所有落点都过一遍 review_day：撞到周末就顺延到下周一（周末休息）。
     """
     row = get_favorite(fid)
     if not row:
@@ -1168,17 +1220,17 @@ def review_apply(fid: int, result: str) -> dict | None:
     rc = row.get("review_count") or 0
 
     if result == "forgot":
-        rc, nxt = 0, (today + timedelta(days=1)).isoformat()
+        rc, nxt = 0, review_day(1, base=today)
     elif result == "known":
         rc = rc + 1
         interval = REVIEW_INTERVALS[min(rc - 1, len(REVIEW_INTERVALS) - 1)]
-        nxt = (today + timedelta(days=interval)).isoformat()
+        nxt = review_day(interval, base=today)
     elif result == "skip":
-        nxt = (today + timedelta(days=1)).isoformat()
+        nxt = review_day(1, base=today)
     elif result == "drop":
         nxt = ""
     elif result == "readd":
-        rc, nxt = 0, (today + timedelta(days=1)).isoformat()
+        rc, nxt = 0, review_day(1, base=today)
     else:
         raise ValueError(f"未知的复习结果：{result}")
 
