@@ -53,7 +53,8 @@ def check(label, cond, extra=""):
 
 
 def plus(days: int) -> str:
-    return (date.today() + timedelta(days=days)).isoformat()
+    """复习落点 = 往后 days 个**工作日**（见 db.review_day：周末休息、不占间隔天数）。"""
+    return db.review_day(days)
 
 
 def fetch(pid: int):

@@ -613,11 +613,13 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 幂等：再跑一次也只会命中 0，不会有副作用。
     conn.execute("UPDATE vocab SET mastery=1 WHERE mastery IS NULL OR mastery=0")
 
-    # ---- 7) 复习日不许落在周末（2026-10-19 用户口径：周末休息）----
-    # 以前排期不管星期几，历史数据里可能存着「周六/周日复习」。规则改了之后周末没有
-    # 复习任务，把这些日期统一顺延到周一 —— 否则素材卡上还印着一个「下次 周六」，
-    # 和实际行为对不上。新排的日期由 review_day() 保证，这里只补历史。
-    # 幂等：顺延的结果都是周一，再跑一次不会命中任何行。
+    # ---- 7) 复习日不许落在周末（2026-10-19 周末休息；2026-10-30 改成「往后推」）----
+    # 以前排期不管星期几，历史数据里可能存着「周六/周日复习」。规则改了之后周末不排
+    # 复习，这些日期要挪到工作日 —— 否则素材卡上还印着一个「下次 周六」，和实际对不上。
+    # 挪法跟新口径一致：**整体往后让两天**，周六→周一、周日→周二，
+    # 而不是全压到周一（那正是用户 2026-10-30 说的「叠加」）。
+    # 这是一次性的历史清理；新排的日期由 review_day() 保证不落在周末。
+    # 幂等：周一/周二都不是周末，再跑一次不会命中任何行。
     for _t in ("favorites", "reading_notes", "math_problems"):
         exists = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (_t,)
@@ -625,7 +627,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
         if not exists:
             continue
         conn.execute(
-            f"UPDATE {_t} SET next_review=date(next_review,'weekday 1') "
+            f"UPDATE {_t} SET next_review=date(next_review,'+2 day') "
             "WHERE next_review IS NOT NULL AND next_review<>'' "
             "AND strftime('%w', next_review) IN ('0','6')"      # 0 = 周日，6 = 周六
         )
@@ -1121,26 +1123,41 @@ _NOT_IN_REVIEW = "item_type NOT IN ('sentence','grammar') AND COALESCE(library,'
 # ------------------------------------------------------------
 # 周末休息（用户 2026-10-19：「周末可以不用增加复习任务，周末休息」）
 #
-# 规则只有一条 —— **复习日一律排在工作日**：
-#   · 算出来落在周六/周日的复习日，顺延到下周一（review_day）；
-#   · 周六/周日当天的复习队列整个为空，页面显示「周末休息」（is_rest_day）；
-#   · 周末到期没做的不会丢，周一用 next_review<=今天 一起带出来。
-# 素材库 / 阅读笔记 / 数学错题三个模块共用这两个函数，别再各自写一份。
+# 规则 —— **复习日一律排在工作日，而且间隔按工作日数数**：
+#   · 间隔里的 1 / 2 / 4 / 7 … 是**工作日**，周六周日既不排复习、也不占间隔天数
+#     （review_day）。所以周五「次日」是下周一，周四「+3」是下周二；
+#     原来会落在周六/周日的任务自然往后让一格，不会和周一原本的任务堆在一起。
+#   · 周六/周日当天的复习队列为空、到期数按 0 报（is_rest_day），
+#     但「还没复习的」仍然列出来给用户自愿练（include_rest），练完照常推进间隔。
+# 素材库 / 阅读笔记 / 数学错题三个模块共用这几个函数，别再各自写一份。
 # ------------------------------------------------------------
 def is_rest_day(day: date | None = None) -> bool:
-    """周六 / 周日 = 休息日：不排复习任务，也没有复习队列。"""
+    """周六 / 周日 = 休息日：不排复习任务，也没有「今天该复习」的队列。"""
     return (day or date.today()).weekday() >= 5
 
 
 def review_day(days: int = 1, *, base: date | None = None) -> str:
-    """从 base（默认今天）往后第 days 天的复习日；落在周末就顺延到下周一。
+    """从 base（默认今天）往后数 days 个**工作日**，返回那天的复习日。
 
-    间隔本身不变（还是 1 / 2 / 4 / 7 … 天），只是**落点**不许是周六、周日：
-    周六 +2 天、周日 +1 天 → 周一。
+    用户 2026-10-30 的口径：「不要把周末的复习任务累加到工作日，直接往后推」。
+    所以这里数的是工作日而不是自然日：
+
+        base = 周四，days = 2  →  周一（周六被跳过，周日也不算）
+        base = 周四，days = 3  →  周二（周一原本的任务顺延到周三，不会叠加）
+        base = 周五，days = 1  →  周一
+
+    以前的做法是「自然日相加，撞到周六/周日统一顺延到下周一」，结果是周六、周日的
+    任务全压在周一，周一变成三天的量。按工作日数推进之后，每个任务只往后让一格。
     """
-    d = (base or date.today()) + timedelta(days=int(days))
-    if d.weekday() >= 5:                      # 5 = 周六，6 = 周日
-        d += timedelta(days=7 - d.weekday())
+    d = base or date.today()
+    left = max(int(days), 0)
+    while left > 0:
+        d += timedelta(days=1)
+        if d.weekday() < 5:                   # 0..4 = 周一..周五
+            left -= 1
+    # days=0 且 base 正好是周末时也兜一下：复习日永远不落在周六/周日
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
     return d.isoformat()
 
 
@@ -1153,13 +1170,15 @@ def _load_tags(rows: list[dict]) -> list[dict]:
     return rows
 
 
-def review_due(limit: int = 200) -> list[dict]:
+def review_due(limit: int = 200, *, include_rest: bool = False) -> list[dict]:
     """今天（含逾期）该复习的素材，最久没碰的排前面。
 
     只收「词汇 + 表达」；长难句和语法积累不在这里（见 _NOT_IN_REVIEW）。
-    周末休息：周六/周日没有复习队列，直接给空的（见 is_rest_day）。
+    周末休息：周六/周日默认不给队列（见 is_rest_day）。但用户 2026-10-30 说
+    「周末没有复习任务，但我还是可以写那些还没复习的」，所以传 include_rest=True
+    时照样把逾期的列出来 —— 那是给他自愿练的，不算今天的复习任务。
     """
-    if is_rest_day():
+    if is_rest_day() and not include_rest:
         return []
     w, a = scope()
     rows = query(
@@ -1189,9 +1208,12 @@ def review_stats() -> dict:
         (*a, MASTERED_AT),
     )
     total = query_one(f"SELECT COUNT(*) c FROM favorites WHERE {w}", a)
+    pending = due["c"] if due else 0
     return {
         # 周末休息：队列是空的，所以「今日待复习」按 0 报，前端据此显示「周末休息」
-        "due": 0 if rest else (due["c"] if due else 0),
+        "due": 0 if rest else pending,
+        # pending = 逾期条数，不管是工作日还是休息日 —— 周末给用户「还没复习的」自愿练
+        "pending": pending,
         "rest": rest,
         "in_cycle": in_cycle["c"] if in_cycle else 0,
         "mastered": mastered["c"] if mastered else 0,
@@ -1209,7 +1231,9 @@ def review_apply(fid: int, result: str) -> dict | None:
       skip   稍后再说 → 推到明天，进度不变
       drop   不再复习 → 退出循环（素材保留）
       readd  重新加入 → 回到 1 天后的节奏
-    所有落点都过一遍 review_day：撞到周末就顺延到下周一（周末休息）。
+    所有落点都过一遍 review_day：间隔按**工作日**数，落点不会落在周六/周日。
+    周末自己练也算数 —— 用户 2026-10-30：「周末没有复习任务，但我还是可以写那些
+    还没复习的」，所以周末点这些键照样推进间隔。
     """
     row = get_favorite(fid)
     if not row:

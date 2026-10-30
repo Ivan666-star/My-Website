@@ -847,6 +847,8 @@ def _merged_review_stats() -> dict:
     b = notes.notes_stats()
     return {
         "due": (a.get("due") or 0) + (b.get("due") or 0),
+        # pending = 逾期条数，休息日照实报（周末给用户自愿练，不算今日任务）
+        "pending": (a.get("pending") or 0) + (b.get("pending") or 0),
         # 周末休息（2026-10-19）：周六/周日队列为空，前端据此显示「周末休息」
         "rest": bool(a.get("rest") or b.get("rest")),
         "in_cycle": (a.get("in_cycle") or 0) + (b.get("in_cycle") or 0),
@@ -863,17 +865,21 @@ def api_review_due():
     """今天该复习的内容：素材库条目 + 阅读笔记，合成一条队列。
 
     用户口径（2026-10-11）：高亮进阅读笔记的东西「不能只是这次看了就过去了，
-    要能够不断复现记住」，所以笔记和收藏共用同一套 1→2→4→7→15→30→60 天阶梯。
+    要能够不断复现记住」，所以笔记和收藏共用同一套 1→2→4→7→15→30→60 天的阶梯
+    （阶梯按**工作日**数推进，见 db.review_day）。
     用户口径（2026-10-14）：复习提醒**只针对词汇和表达** —— 长难句、语法积累
     不进队列（db._NOT_IN_REVIEW 负责过滤），它们留在素材库里随时翻阅。
-    用户口径（2026-10-19）：周末休息 —— 周六/周日队列为空，并给 rest 标记。
+    用户口径（2026-10-19 / 2026-10-30）：周末不计复习任务（rest），但周末照样
+    把「还没复习的」列出来给用户自愿练 —— 练完照常推进间隔，只是角标和
+    「今日待复习」不亮。
     """
-    items = db.review_due() + notes.notes_review_due()
+    rest = db.is_rest_day()
+    items = db.review_due(include_rest=rest) + notes.notes_review_due(include_rest=rest)
     items.sort(key=lambda r: (r.get("next_review") or "9999", r.get("src") or "fav", r.get("id") or 0))
     return {
         "items": items,
         "stats": _merged_review_stats(),
-        "rest": db.is_rest_day(),
+        "rest": rest,
         "intervals": db.REVIEW_INTERVALS,
         "mastered_at": db.MASTERED_AT,
     }

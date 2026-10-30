@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
-"""周末休息（用户 2026-10-19）的回归测试。
+"""周末休息（用户 2026-10-19、2026-10-30）的回归测试。
 
-用户原话：「周末可以不用增加复习任务，周末休息」。
-落地的规则只有一条 —— **复习日一律排在工作日**：
-  · 算出来落在周六/周日的复习日，顺延到下周一（db.review_day）；
-  · 周六/周日当天的复习队列整个为空、到期数按 0 报（db.is_rest_day）；
-  · 周末到期没做的不会丢，周一用 next_review<=今天 一起带出来；
-  · 老库里已经排在周六/周日的日期，迁移时统一顺延到周一。
+用户原话：
+    「周末可以不用增加复习任务，周末休息」（2026-10-19）
+    「不要把周末的复习任务直接累加到工作日去，而是直接往后推；本来周六的任务就
+      直接设置为周一的，而不是把周六的和周一的叠加在一起。周末虽然没有复习任务，
+      但我还是可以写那些还没有复习的题目」（2026-10-30）
+
+落地的规则：
+  · **间隔按工作日数**：周六/周日既不排复习、也不占间隔天数（db.review_day）。
+    周五 +1 → 下周一；周四 +3 → 下周二（周一原本那一档顺到周三，不再叠在一起）。
+  · 周六/周日当天的「今日待复习」按 0 报、角标不亮（db.is_rest_day）。
+  · 周末照样能把「还没复习的」列出来自己练（include_rest=True），练完照常推进间隔。
+  · 老库里排在周六/周日的日期，迁移时一次性往后挪两天（周六→周一、周日→周二）。
 
 三个模块都要覆盖：素材库（favorites）、阅读笔记（reading_notes）、
 数学/信号错题（math_problems）。
@@ -40,6 +46,7 @@ FRI = date(2026, 10, 16)
 SAT = date(2026, 10, 17)
 SUN = date(2026, 10, 18)
 MON = date(2026, 10, 19)
+TUE = date(2026, 10, 20)
 WED = date(2026, 10, 21)
 THU = date(2026, 10, 22)
 
@@ -98,15 +105,18 @@ def main() -> int:
     tmp = setup_temp_db()
     checks: list[tuple[str, bool, str]] = []
     try:
-        # ---------- 1. 纯函数：日期落点 ----------
-        # 2026-10-17/18 是周六/周日，2026-10-19 是周一
+        # ---------- 1. 纯函数：日期落点按「工作日」数 ----------
+        # 2026-10-16 周五 / 17 周六 / 18 周日 / 19 周一 / 21 周三 / 22 周四
         cases = [
-            ("周五次日（周六）→ 周一", db.review_day(1, base=FRI), "2026-10-19"),
-            ("周六次日（周日）→ 周一", db.review_day(1, base=SAT), "2026-10-19"),
-            ("周日次日 → 周一", db.review_day(1, base=SUN), "2026-10-19"),
+            ("周五 +1 个工作日（跳过周末）→ 周一", db.review_day(1, base=FRI), "2026-10-19"),
+            ("周六 +1 个工作日 → 周一", db.review_day(1, base=SAT), "2026-10-19"),
+            ("周日 +1 个工作日 → 周一", db.review_day(1, base=SUN), "2026-10-19"),
             ("工作日不动：周一 +3 → 周四", db.review_day(3, base=MON), "2026-10-22"),
-            ("周四 +3（落到周日）→ 周一", db.review_day(3, base=THU), "2026-10-26"),
-            ("周三 +15 → 照常往后推", db.review_day(15, base=WED), "2026-11-05"),
+            ("周四 +2 → 周一（原来周六那一档）", db.review_day(2, base=THU), "2026-10-26"),
+            ("周四 +3 → 周二（原来周日那一档；周一的顺到周三，不叠加）",
+             db.review_day(3, base=THU), "2026-10-27"),
+            ("周三 +3 → 周一（跨周末按工作日数）", db.review_day(3, base=WED), "2026-10-26"),
+            ("周三 +15 个工作日 → 2026-11-11", db.review_day(15, base=WED), "2026-11-11"),
         ]
         for name, got, want in cases:
             checks.append((name, got == want, f"得到 {got}，应为 {want}"))
@@ -115,19 +125,25 @@ def main() -> int:
         checks.append(("周日到周五都不是休息日",
                        not any(db.is_rest_day(date(2026, 10, 19 + i)) for i in range(5)), ""))
 
+        # 落点永远不在周末：随机撒 200 天，逐个数一遍
+        bad = [d for d in (MON, TUE, WED, THU, FRI, SAT, SUN)
+               if date.fromisoformat(db.review_day(7, base=d)).weekday() >= 5]
+        checks.append(("任何基准 +7 个工作日都不落在周末", not bad, str(bad)))
+
         with db.as_user(UID):
-            # ---------- 2. 周六当天：队列为空、统计按 0 ----------
+            # ---------- 2. 周六当天：任务按 0 报，但「还没复习的」照样能练 ----------
             fav = add_fav("WEEKEND-phrase", "phrase", "2026-10-16")   # 周五就到期了
             note = notes.add_note("WEEKEND-note", cn="周末笔记", article_id=1, doc_date="2026-10-17")
             prob = math.create_problem("周末录的一道题", subject="高等数学")
 
             freeze(SAT)
-            checks.append(("周六：素材队列为空", db.review_due() == [], str(db.review_due())))
+            checks.append(("周六：素材默认队列为空", db.review_due() == [], str(db.review_due())))
             fs = db.review_stats()
-            checks.append(("周六：素材到期数按 0 报", fs["due"] == 0 and fs["rest"] is True, str(fs)))
+            checks.append(("周六：素材到期数按 0 报、pending 照实",
+                           fs["due"] == 0 and fs["rest"] is True and fs["pending"] >= 1, str(fs)))
             ns = notes.notes_stats()
             checks.append(("周六：笔记到期数按 0 报", ns["due"] == 0 and ns["rest"] is True, str(ns)))
-            checks.append(("周六：笔记队列为空", notes.notes_review_due() == [], ""))
+            checks.append(("周六：笔记默认队列为空", notes.notes_review_due() == [], ""))
             ms = math.stats()
             checks.append(("周六：错题到期数按 0 报",
                            ms["due"] == 0 and ms["rest"] is True and ms["by_subject_due"] == {}, str(ms)))
@@ -135,7 +151,20 @@ def main() -> int:
             checks.append(("周六：随机刷题不会抽出到期题",
                            math.random_problem(cycle="due") is None, ""))
 
-            # ---------- 3. 复习动作落在周末 → 顺延到下周一 ----------
+            # 2026-10-30 用户口径：周末可以自己写还没复习的 → include_rest 时照样列出来
+            # （笔记/错题先手动弄成逾期，否则它们的新排期本来就落在工作日）
+            db.execute("UPDATE reading_notes SET next_review='2026-10-16' WHERE id=?", (note["id"],))
+            db.execute("UPDATE math_problems SET next_review='2026-10-16' WHERE id=?", (prob["id"],))
+            checks.append(("周六：素材可以自己练（include_rest）",
+                           fav in {r["id"] for r in db.review_due(include_rest=True)}, ""))
+            checks.append(("周六：笔记可以自己练（include_rest）",
+                           note["id"] in {r["id"] for r in notes.notes_review_due(include_rest=True)}, ""))
+            checks.append(("周六：错题可以自己练（include_rest）",
+                           prob["id"] in {r["id"] for r in math.list_problems(cycle="due", include_rest=True)}, ""))
+            checks.append(("周六：随机刷题也能抽到还没复习的（include_rest）",
+                           math.random_problem(cycle="due", include_rest=True) is not None, ""))
+
+            # ---------- 3. 复习动作：落点一律是工作日 ----------
             r = db.review_apply(fav, "known") or {}
             checks.append(("周六点「记住了」→ 下次是周一",
                            r.get("next_review") == "2026-10-19", str(r.get("next_review"))))
@@ -154,21 +183,36 @@ def main() -> int:
 
             freeze(FRI)
             r = db.review_apply(fav, "known") or {}
-            checks.append(("周五点「记住了」（次日是周六）→ 顺延到周一",
+            checks.append(("周五点「记住了」→ 跳过周末排到周一",
                            r.get("next_review") == "2026-10-19", str(r.get("next_review"))))
             nfri = notes.add_note("WEEKEND-note-fri", cn="周五填充", article_id=1, doc_date="2026-10-16")
             checks.append(("周五填充的笔记 → 首次复习排到周一",
                            nfri.get("next_review") == "2026-10-19", str(nfri.get("next_review"))))
             pfri = math.create_problem("周五录的题", subject="高等数学")
-            checks.append(("周五录题（+3 天落到周一）→ 首次复习 2026-10-19",
-                           pfri.get("next_review") == "2026-10-19", str(pfri.get("next_review"))))
+            checks.append(("周五录题（+3 个工作日）→ 首次复习 2026-10-21",
+                           pfri.get("next_review") == "2026-10-21", str(pfri.get("next_review"))))
 
             freeze(WED)
             pwed = math.create_problem("周三录的题", subject="高等数学")
-            checks.append(("周三录题（+3 天落到周六）→ 首次复习排到周一",
+            checks.append(("周三录题（+3 个工作日跨周末）→ 首次复习 2026-10-26",
                            pwed.get("next_review") == "2026-10-26", str(pwed.get("next_review"))))
 
-            # ---------- 4. 周一：周末攒下的一起带出来 ----------
+            # 关键回归：同一天「+2 个工作日」和「+3 个工作日」不能落在同一天
+            # （以前都是「撞到周末 → 顺延到周一」，两档会叠在一起）
+            freeze(THU)
+            pa = math.create_problem("周四题 A（+3 个工作日）", subject="高等数学")
+            pb = math.create_problem("周四题 B（+2 个工作日）", subject="高等数学")
+            db.execute("UPDATE math_problems SET next_review=? WHERE id=?",
+                       (db.review_day(2, base=THU), pb["id"]))
+            rows = db.query(
+                "SELECT next_review FROM math_problems WHERE id IN (?,?) ORDER BY next_review",
+                (pa["id"], pb["id"]),
+            )
+            dates = [r["next_review"] for r in rows]
+            checks.append(("周四 +2 与 +3 落在不同工作日（不叠加）",
+                           dates == ["2026-10-26", "2026-10-27"], str(dates)))
+
+            # ---------- 4. 逾期（含历史周末日期）照样带得出来 ----------
             freeze(MON)
             db.execute("UPDATE favorites SET next_review='2026-10-17' WHERE id=?", (fav,))
             db.execute("UPDATE reading_notes SET next_review='2026-10-18' WHERE id=?", (note["id"],))
@@ -176,13 +220,13 @@ def main() -> int:
             m = db.review_stats()
             checks.append(("周一不是休息日", m["rest"] is False, str(m)))
             due_ids = {r["id"] for r in db.review_due()}
-            checks.append(("周一能补上周六到期的素材", fav in due_ids, str(sorted(due_ids))))
-            checks.append(("周一能补上周日到期的笔记",
+            checks.append(("周一能带出逾期到周六的素材", fav in due_ids, str(sorted(due_ids))))
+            checks.append(("周一能带出逾期到周日的笔记",
                            note["id"] in {r["id"] for r in notes.notes_review_due()}, ""))
-            checks.append(("周一能补上周末到期的错题",
+            checks.append(("周一能带出逾期的错题",
                            prob["id"] in {r["id"] for r in math.list_problems(cycle="due")}, ""))
 
-            # ---------- 5. 老数据迁移：排在周末的复习日顺延到周一 ----------
+            # ---------- 5. 老数据迁移：排在周末的复习日往后挪两天 ----------
             # 工作日那条用来验证「迁移不乱动工作日」。先在用户上下文里插好，
             # 免得和下面那条独占写事务的连接抢锁。
             keep = add_fav("KEEP-weekday", "vocab", "2026-11-05")
@@ -200,7 +244,7 @@ def main() -> int:
                     "weekday": conn.execute("SELECT next_review FROM favorites WHERE id=?", (keep,)).fetchone()[0],
                 }
             checks.append(("迁移：素材的周六 → 周一", got["fav"] == "2026-10-19", str(got)))
-            checks.append(("迁移：笔记的周日 → 周一", got["note"] == "2026-10-19", str(got)))
+            checks.append(("迁移：笔记的周日 → 周二（不再和周一叠）", got["note"] == "2026-10-20", str(got)))
             checks.append(("迁移：错题的周六 → 周一", got["math"] == "2026-10-19", str(got)))
             checks.append(("迁移：工作日的复习日不动", got["weekday"] == "2026-11-05", str(got)))
     finally:

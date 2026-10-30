@@ -788,7 +788,7 @@ def save_material(
         )
 
     final_tags = cls.get("tags") or tags or []
-    # 首次复习 = 次日；db.review_day 会把落在周六/周日的顺延到下周一（周末休息）
+    # 首次复习 = 1 个工作日后；周末不占间隔天数（db.review_day，2026-10-30 口径）
     fid = db.execute(
         """INSERT INTO favorites(user_id,item_type,content,cn,example,tags,source_article_id,
                                  library,category,position,genre,function,level,usage,

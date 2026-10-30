@@ -11,11 +11,12 @@
   · 笔记是**独立**的一份数据（`reading_notes` 表），有自己的库页面；
   · 语法点单独攒在 `favorites` 的 grammar 库里，**只供随时查阅，不进每日复习**
     （用户 2026-10-14：复习提醒只针对词汇和表达，长难句和语法先不管）；
-  · 笔记**收藏即入复习节奏**：next_review = 次日，和素材库同一套
-    1 → 2 → 4 → 7 → 15 → 30 → 60 天阶梯（间隔常量在 db.py，别在这里另写一份）。
+  · 笔记**收藏即入复习节奏**：next_review = 下一个工作日，和素材库同一套
+    1 → 2 → 4 → 7 → 15 → 30 → 60 个工作日阶梯（间隔常量在 db.py，别在这里另写一份）。
     笔记记的是划选出来的词和短语，属于「表达」，所以照旧进复习。
-  · 周末休息（用户 2026-10-19）：复习日只排在工作日，落在周六/周日顺延到下周一，
-    周六/周日当天队列为空 —— 所有落点都走 db.review_day()，别自己算日期。
+  · 周末休息（用户 2026-10-19）：复习日只排在工作日，间隔按**工作日**数推进
+    （2026-10-30 口径），周六/周日当天不计复习任务 —— 所有落点都走 db.review_day()。
+    周末照样能把还没复习的笔记翻出来练（notes_review_due(include_rest=True)）。
 """
 from __future__ import annotations
 
@@ -161,9 +162,12 @@ def notes_stats() -> dict:
         f"SELECT COUNT(*) c FROM reading_notes WHERE {w} AND NOT ({_NOT_IN_CYCLE}) AND review_count>=?",
         (*a, db.MASTERED_AT))
     total = db.query_one(f"SELECT COUNT(*) c FROM reading_notes WHERE {w}", a)
+    pending = due["c"] if due else 0
     return {
         # 周末休息：队列是空的（见 db.is_rest_day），所以到期数按 0 报
-        "due": 0 if rest else (due["c"] if due else 0),
+        "due": 0 if rest else pending,
+        # pending = 逾期条数，工作日/休息日都照实报（周末给用户自愿练）
+        "pending": pending,
         "rest": rest,
         "in_cycle": in_cycle["c"] if in_cycle else 0,
         "mastered": mastered["c"] if mastered else 0,
@@ -171,9 +175,13 @@ def notes_stats() -> dict:
     }
 
 
-def notes_review_due(limit: int = 200) -> list[dict]:
-    """今天该复习的笔记，包成复习卡片同一种形状（多带一个 src=note）。"""
-    if db.is_rest_day():
+def notes_review_due(limit: int = 200, *, include_rest: bool = False) -> list[dict]:
+    """今天该复习的笔记，包成复习卡片同一种形状（多带一个 src=note）。
+
+    周末休息日默认给空；include_rest=True 时照样列出逾期的，供周末自愿练
+    （用户 2026-10-30：「周末没有复习任务，但我还是可以写那些还没复习的」）。
+    """
+    if db.is_rest_day() and not include_rest:
         return []
     w, a = db.scope()
     rows = db.query(
@@ -204,7 +212,7 @@ def notes_review_due(limit: int = 200) -> list[dict]:
 def notes_apply_review(nid: int, result: str) -> dict | None:
     """推进一条笔记的复习进度（阶梯与素材库完全一致，见 db.REVIEW_INTERVALS）。
 
-    落点一律走 db.review_day()：撞到周末顺延到下周一（周末休息）。
+    落点一律走 db.review_day()：间隔按工作日数，周末不占天数（周末自己练也照常推进）。
     """
     w, a = db.scope()
     row = db.query_one(f"SELECT * FROM reading_notes WHERE id=? AND {w}", (int(nid), *a))

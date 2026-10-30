@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
-"""真浏览器验证「周末休息」的界面分支（2026-10-19 用户口径：周末休息）。
+"""真浏览器验证「周末休息」的界面分支（2026-10-19 / 2026-10-30 用户口径）。
 
-为什么还要跑真浏览器：`_weekend_test.py` 已经把后端算得明明白白（周末队列为空、
-复习日顺延到周一），但**用户看到的那两句话**是前端按 `rest` 标记分出来的分支：
-  · 今日复习页 →「🌴 周末休息，今天不用复习」
-  · 错题页 →「🌴 周末休息」那一块
+为什么还要跑真浏览器：`_weekend_test.py` 已经把后端算得明明白白（间隔按工作日数、
+周末队列为空、周末还能自愿练），但**用户看到的那几句话**是前端按 `rest` 标记分出来的：
+  · 今日复习页 →「🌴 周末休息，今天不算复习任务」；有还没复习的还会列出来给人自愿练
+  · 错题页 →「🌴 周末休息」/「🌴 周末可选练习」
 前端写错分支（比如永远走「今天没有要复习的素材」）后端测试是发现不了的。
 
 做法沿用 tools/_shot_notes.py 那套（已验证过的路子）：
@@ -164,19 +164,28 @@ PAGE_REVIEW = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
     if (!box) { L("NO_REVIEW_BOX"); return; }
     runInFrame(w, "REV.rest=true;REV.items=[];REV.stats=Object.assign({},REV.stats,{due:0,rest:true});renderReview();");
     L("review_rest_banner=" + (has(box, "🌴 周末休息") ? 1 : 0));
-    L("review_rest_hint=" + (has(box, "攒到周一") ? 1 : 0));
+    L("review_rest_hint=" + (has(box, "手头没有欠着的") ? 1 : 0));
     L("review_rest_not_empty=" + (has(box, "今天没有要复习的素材") ? 0 : 1));
     L("review_rest_due_zero=" + ((d.querySelector('[data-rev-stat="due"]') || {}).textContent === "0" ? 1 : 0));
-    L("review_rule_note=" + (has(box, "复习只排在工作日") ? 1 : 0));
+    /* 规则说明（2026-10-30 口径：间隔按工作日数、不再往周一叠） */
+    L("review_rule_note=" + (has(box, "间隔按工作日数") ? 1 : 0));
 
-    /* ---- ③ 反过来：平常日子不许挂周末横幅，且照旧显示「今天没有要复习的素材」 ----
-       页面顶部那段「周末休息：复习只排在工作日」的**规则说明**是一直都在的，
+    /* ---- ③ 周末还有「还没复习的」：照样列出来给用户自愿练（2026-10-30） ---- */
+    runInFrame(w,
+      'REV.rest=true;REV.items=[{id:1,src:"fav",content:"volunteer-word",cn:"自愿练",' +
+      'item_type:"vocab",review_count:0}];' +
+      "REV.stats=Object.assign({},REV.stats,{due:0,rest:true});renderReview();");
+    L("review_rest_optional=" + (has(box, "想练随时练") ? 1 : 0));
+    L("review_rest_optional_cards=" + (has(box, "还没复习的，可以自己练") ? 1 : 0));
+
+    /* ---- ④ 反过来：平常日子不许挂周末横幅，且照旧显示「今天没有要复习的素材」 ----
+       页面顶部那段「周末休息：…」的**规则说明**是一直都在的，
        所以这里认的是横幅里的 🌴 图标，不是「周末休息」四个字。 */
     runInFrame(w, "REV.rest=false;REV.items=[];REV.stats=Object.assign({},REV.stats,{due:0,rest:false});renderReview();");
     L("review_normal_empty=" + (has(box, "今天没有要复习的素材") ? 1 : 0));
     L("review_normal_no_banner=" + (has(box, "🌴") ? 0 : 1));
 
-    /* ---- ④ 收尾：画面停回「周末休息」那一版 ---- */
+    /* ---- ⑤ 收尾：画面停回「周末休息」那一版 ---- */
     runInFrame(w, "REV.rest=true;REV.items=[];REV.stats=Object.assign({},REV.stats,{due:0,rest:true});renderReview();");
     L("DONE");
   } catch (e) {
@@ -211,15 +220,21 @@ PAGE_MATH = """<!DOCTYPE html><html lang="zh-CN"><head><meta charset="utf-8">
     runInFrame(w, "MATH.rest=true;MATH.due=[];renderDrill();");
     const wrap = d.querySelector("#mathDrillWrap");
     L("math_rest_banner=" + (has(wrap, "🌴 周末休息") ? 1 : 0));
-    L("math_rest_hint=" + (has(wrap, "顺延到下周一") ? 1 : 0));
-    L("math_due_empty_note=" + (has(wrap, "周末队列为空") ? 1 : 0));
+    L("math_rest_hint=" + (has(wrap, "周末不排复习任务") ? 1 : 0));
+    L("math_due_empty_note=" + (has(wrap, "手头也没有欠着的") ? 1 : 0));
     L("math_stat_due_zero=" + ((d.querySelector('[data-m-stat="due"]') || {}).textContent === "0" ? 1 : 0));
 
-    /* ---- ② 反过来：平常日子不挂周末横幅 ---- */
+    /* ---- ② 周末还有「还没复习的错题」：照样列出来给用户自愿练（2026-10-30） ---- */
+    runInFrame(w,
+      'MATH.rest=true;MATH.due=[{id:1,stem:"x+1=2",answer:"x=1",subject:"高等数学",' +
+      'kind:"normal",kind_label:"普通错题",review_count:0,next_review:"2026-10-16"}];renderDrill();');
+    L("math_rest_optional=" + (has(d.querySelector("#mathDrillWrap"), "周末可选练习") ? 1 : 0));
+
+    /* ---- ③ 反过来：平常日子不挂周末横幅 ---- */
     runInFrame(w, "MATH.rest=false;MATH.due=[];renderDrill();");
     L("math_normal_no_banner=" + (has(d.querySelector("#mathDrillWrap"), "🌴") ? 0 : 1));
 
-    /* ---- ③ 收尾：画面停回「周末休息」那一版 ---- */
+    /* ---- ④ 收尾：画面停回「周末休息」那一版 ---- */
     runInFrame(w, "MATH.rest=true;MATH.due=[];renderDrill();");
     L("DONE");
   } catch (e) {
@@ -341,19 +356,25 @@ try:
          f"eng={kv.get('api_rest')} math={kv.get('math_api_rest')}"),
         ("今日复习页能进", kv.get("review_loaded") == "1", kv.get("review_loaded")),
         ("周末：显示「🌴 周末休息」", kv.get("review_rest_banner") == "1", kv.get("review_rest_banner")),
-        ("周末：提示写明攒到周一", kv.get("review_rest_hint") == "1", kv.get("review_rest_hint")),
+        ("周末：提示手头没有欠着的", kv.get("review_rest_hint") == "1", kv.get("review_rest_hint")),
         ("周末：不再显示「今天没有要复习的素材」", kv.get("review_rest_not_empty") == "1",
          kv.get("review_rest_not_empty")),
         ("周末：「今日待复习」是 0", kv.get("review_rest_due_zero") == "1", kv.get("review_rest_due_zero")),
-        ("页面写明「复习只排在工作日」", kv.get("review_rule_note") == "1", kv.get("review_rule_note")),
+        ("页面写明「间隔按工作日数」", kv.get("review_rule_note") == "1", kv.get("review_rule_note")),
+        ("周末：还没复习的素材照样列出来（可自愿练）", kv.get("review_rest_optional") == "1",
+         kv.get("review_rest_optional")),
+        ("周末：素材卡片标着「还没复习的，可以自己练」", kv.get("review_rest_optional_cards") == "1",
+         kv.get("review_rest_optional_cards")),
         ("平常日子仍显示「今天没有要复习的素材」", kv.get("review_normal_empty") == "1",
          kv.get("review_normal_empty")),
         ("平常日子不挂周末横幅", kv.get("review_normal_no_banner") == "1", kv.get("review_normal_no_banner")),
         ("错题页：真站点起来了", (math_text or "").startswith("BOOT|iframe=ok"), (math_text or "")[:60]),
         ("错题页能进", kv.get("math_loaded") == "1", kv.get("math_loaded")),
         ("错题页周末显示「🌴 周末休息」", kv.get("math_rest_banner") == "1", kv.get("math_rest_banner")),
-        ("错题页说明顺延到下周一", kv.get("math_rest_hint") == "1", kv.get("math_rest_hint")),
-        ("错题页说明周末队列为空", kv.get("math_due_empty_note") == "1", kv.get("math_due_empty_note")),
+        ("错题页写明周末不排复习任务", kv.get("math_rest_hint") == "1", kv.get("math_rest_hint")),
+        ("错题页说明手头没有欠着的", kv.get("math_due_empty_note") == "1", kv.get("math_due_empty_note")),
+        ("错题页周末能练还没复习的（周末可选练习）", kv.get("math_rest_optional") == "1",
+         kv.get("math_rest_optional")),
         ("错题页「今日待复习」是 0", kv.get("math_stat_due_zero") == "1", kv.get("math_stat_due_zero")),
         ("错题页平常日子不挂周末横幅", kv.get("math_normal_no_banner") == "1", kv.get("math_normal_no_banner")),
         ("两页都跑到 DONE", "DONE" in (rev_text or "") and "DONE" in (math_text or ""),

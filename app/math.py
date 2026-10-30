@@ -137,8 +137,9 @@ def normalize_math_delims(text: str) -> str:
 # ------------------------------------------------------------
 # ⚠️ MASTERED_AT 一律 = 阶梯长度，不要另写一个数：
 #    第 n 次做对用的是 INTERVALS[n-1]，硬编码 4 会和「已推到 30 天」对不上。
-# ⚠️ 落点一律走 db.review_day()：撞到周六/周日顺延到下周一（用户 2026-10-19
-#    「周末休息」），周六/周日当天的到期队列也是空的（db.is_rest_day）。
+# ⚠️ 落点一律走 db.review_day()：间隔按**工作日**数（用户 2026-10-19「周末休息」、
+#    2026-10-30「周末的任务直接往后推，别叠到周一」），周六/周日当天的到期队列默认空
+#    （db.is_rest_day），但周末照样可以把还没复习的题翻出来练。
 # ============================================================
 REVIEW_INTERVALS = [3, 7, 14, 30, 60]
 MASTERED_AT = len(REVIEW_INTERVALS)
@@ -275,8 +276,8 @@ def create_problem(
     # ⚠️ 以前是拼成「答案：xxx」塞进 solution，和推荐解法混在一列里 —— 用户
     # 2026-10-12 的口径是「只要最终答案，不要解析」，所以答案有自己的位置了。
     answer = normalize_math_delims((answer or "").strip())
-    # 首次复习 = 添加后 3 天（计划书第十四节的「第一次：3天后」）；
-    # 撞到周末就顺延到下周一（周末休息）
+    # 首次复习 = 添加后 3 个工作日（计划书第十四节的「第一次：3天后」）；
+    # 周末不占间隔天数（2026-10-30 口径：周末的任务往后推，不叠到周一）
     first = db.review_day(REVIEW_INTERVALS[0])
     pid = db.execute(
         "INSERT INTO math_problems (user_id, subject, kind, topic, stem, answer, image_path, "
@@ -343,7 +344,7 @@ def delete_problem(pid: int) -> bool:
     return True
 
 
-def _filters(subject="", topic="", kind="", q="", cycle="", module=""):
+def _filters(subject="", topic="", kind="", q="", cycle="", module="", include_rest=False):
     w, a = scope_of()
     parts, args = [w], list(a)
     # 模块隔离：只看这个入口该看的科目（见 MODULES 的注释）
@@ -368,9 +369,11 @@ def _filters(subject="", topic="", kind="", q="", cycle="", module=""):
         )
         args += [like, like, like]
     if cycle == "due":
-        # 周末休息：周六/周日不排复习，到期队列整个为空（见 db.is_rest_day）。
+        # 周末休息：周六/周日不排复习，默认到期队列为空（见 db.is_rest_day）。
         # 写 1=0 而不是在调用处提前 return：列表、随机刷题都共用这一条过滤。
-        if db.is_rest_day():
+        # include_rest=True 时照常给逾期的 —— 周末用户自愿练那些还没复习的题
+        # （用户 2026-10-30），练完照常推进间隔。
+        if db.is_rest_day() and not include_rest:
             parts.append("1=0")
         else:
             parts.append(f"NOT ({_NOT_IN_CYCLE}) AND next_review<=?")
@@ -442,6 +445,8 @@ def stats(module: str = "") -> dict:
         "total": total["c"] if total else 0,
         # 周末休息：到期队列是空的，所以「今日待复习」一律按 0 报（前端据此显示休息）
         "due": 0 if rest else (due["c"] if due else 0),
+        # pending = 逾期条数，工作日/休息日都照实报（周末给用户自愿练）
+        "pending": due["c"] if due else 0,
         "rest": rest,
         "mastered": mastered["c"] if mastered else 0,
         "with_image": with_image["c"] if with_image else 0,
@@ -1018,9 +1023,12 @@ def api_random(subject: str = "", topic: str = "", kind: str = "", cycle: str = 
 
 @router.get("/review/due")
 def api_due(limit: int = 100, module: str = ""):
-    # rest = 周末休息：周六/周日没有到期队列，前端据此显示「周末休息」而不是「今天没有」
+    # rest = 周末休息：周六/周日不计复习任务，前端据此显示「周末休息」而不是「今天没有」。
+    # include_rest=True：周末照样把「还没复习的」列出来，用户想练随时练（2026-10-30 口径）。
     return {
-        "items": list_problems(cycle="due", limit=limit, module=module, with_analysis=False),
+        "items": list_problems(
+            cycle="due", limit=limit, module=module, with_analysis=False, include_rest=True
+        ),
         "rest": db.is_rest_day(),
     }
 
