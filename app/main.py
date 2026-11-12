@@ -1066,6 +1066,7 @@ def api_get_settings(request: Request):
         "base_difficulty": effective_base_difficulty(),
         "daily_hour": settings.daily_hour,
         "exam_date": db.user_prefs().get("exam_date") or DEFAULT_EXAM_DATE,
+        "review_item_minutes": int(db.get_user_pref("review_item_minutes", "6")),
         "next_difficulty": decide_difficulty(),
         "scheduler": scheduler.state(),
         "auth": _auth_payload(request),
@@ -1086,6 +1087,14 @@ def api_set_settings(request: Request, payload: dict = Body(...)):
         if ed and not _is_iso_date(ed):
             raise HTTPException(400, "考试日期要写成 2027-12-18 这样的格式")
         db.set_user_pref("exam_date", ed)       # 传空 = 回到默认值
+    if "review_item_minutes" in payload:
+        try:
+            minutes = int(payload["review_item_minutes"])
+        except (TypeError, ValueError):
+            raise HTTPException(400, "单题预计用时请填写 1～30 的整数") from None
+        if not 1 <= minutes <= 30:
+            raise HTTPException(400, "单题预计用时请填写 1～30 的整数")
+        db.set_user_pref("review_item_minutes", str(minutes))
     if payload.get("daily_hour") not in (None, ""):
         db.set_profile("daily_hour", str(payload["daily_hour"]))
     if payload.get("reload_provider"):

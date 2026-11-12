@@ -580,6 +580,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_math_user ON math_problems(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_math_user_due ON math_problems(user_id, next_review)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_math_log ON math_review_log(user_id, problem_id)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_math_log_day ON math_review_log(user_id, created_at, result, problem_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_user ON reading_notes(user_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_article ON reading_notes(user_id, article_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_notes_due ON reading_notes(user_id, next_review)")

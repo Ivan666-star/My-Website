@@ -27,6 +27,7 @@ from fastapi.responses import FileResponse
 from . import db, jobs
 from .review_plan import arrange
 from . import exam_review
+from .review_workload import daily_selection
 from .ai import prompts  # noqa: F401  （保留导入位，提示词写在本文件里）
 from .ai.provider import AIError, get_provider, parse_json
 from .config import settings
@@ -170,7 +171,7 @@ def refresh_exam_review() -> dict:
             for r in rows:
                 gap = REVIEW_INTERVALS[min(max(int(r["review_count"] or 0), 0), len(REVIEW_INTERVALS)-1)]
                 anchor = date.fromisoformat(str(r["last_review_at"] or r["created_at"])[:10])
-                bounded = planned_after(gap)
+                bounded = exam_review.target(date.today(),gap,exam)
                 if bounded:
                     # 阶段收紧时参考上次实际做题时间；不追溯制造过去的逾期任务。
                     original = r["planned_review"] or r["next_review"]
@@ -444,9 +445,10 @@ def _filters(subject="", topic="", kind="", q="", cycle="", module="", include_r
 def list_problems(**kw) -> list[dict]:
     limit = int(kw.pop("limit", 200) or 200)
     with_analysis = bool(kw.pop("with_analysis", False))
+    offset = max(0, int(kw.pop("offset", 0)))
     where, args = _filters(**kw)
     rows = db.query(
-        f"SELECT * FROM math_problems WHERE {where} ORDER BY id DESC LIMIT ?", (*args, limit)
+        f"SELECT * FROM math_problems WHERE {where} ORDER BY id DESC LIMIT ? OFFSET ?", (*args, limit, offset)
     )
     return [_row(r, with_analysis) for r in rows]
 
@@ -957,12 +959,18 @@ def api_meta(module: str = ""):
 def api_list(
     subject: str = "", topic: str = "", kind: str = "",
     q: str = "", cycle: str = "", module: str = "",
-    limit: int = 200, with_analysis: int = 0,
+    limit: int = 200, with_analysis: int = 0, offset: int = 0,
 ):
+    limit = max(1,min(int(limit),1000))
+    offset = max(0,int(offset))
+    where, args = _filters(subject=subject, topic=topic, kind=kind, q=q, cycle=cycle, module=module)
+    total = db.query_one(f"SELECT COUNT(*) c FROM math_problems WHERE {where}",args)["c"]
     return {
+        "total":total, "offset":offset, "limit":limit,
+        "next_offset":offset+limit if offset+limit<total else None,
         "items": list_problems(
             subject=subject, topic=topic, kind=kind, q=q, cycle=cycle, module=module,
-            limit=limit, with_analysis=bool(int(with_analysis)),
+            limit=limit, offset=offset, with_analysis=bool(int(with_analysis)),
         )
     }
 
@@ -1132,7 +1140,7 @@ def api_random(subject: str = "", topic: str = "", kind: str = "", cycle: str = 
 
 
 @router.get("/review/plan")
-def api_review_plan(module: str = "math", days: int = Query(14, ge=1, le=60)):
+def api_review_plan(module: str = "math", days: int = Query(14, ge=1, le=60), summary: int = 0):
     if module not in MODULES:
         raise HTTPException(400, "请选择数学或信号与系统")
     policy = refresh_exam_review()
@@ -1140,23 +1148,33 @@ def api_review_plan(module: str = "math", days: int = Query(14, ge=1, le=60)):
     today = date.today()
     exam = exam_date()
     end = (today + timedelta(days=days - 1)).isoformat()
+    fields = "next_review,COUNT(*) count" if summary else "id,stem,subject,planned_review,next_review"
+    suffix = " GROUP BY next_review ORDER BY next_review" if summary else " ORDER BY next_review,id"
     rows = db.query(
-        f"SELECT id,stem,subject,planned_review,next_review FROM math_problems WHERE {w} "
-        "AND next_review>=? AND next_review<=? ORDER BY next_review,id",
+        f"SELECT {fields} FROM math_problems WHERE {w} "
+        "AND next_review>=? AND next_review<=?" + suffix,
         (*args, today.isoformat(), end),
     )
+    counts = {r["next_review"]:r["count"] for r in rows} if summary else {}
     return {"policy": policy, "days": [{"date": (today + timedelta(days=i)).isoformat(),
                       "rest": db.is_rest_day(today + timedelta(days=i)) or (today + timedelta(days=i)) >= exam,
-                      "items": [r for r in rows if r["next_review"] == (today + timedelta(days=i)).isoformat()]}
+                      "count": counts.get((today+timedelta(days=i)).isoformat(),0) if summary else sum(r["next_review"]==(today+timedelta(days=i)).isoformat() for r in rows),
+                      "items": [] if summary else [r for r in rows if r["next_review"] == (today + timedelta(days=i)).isoformat()]}
                      for i in range(days)]}
 
 
 @router.get("/review/due")
-def api_due(limit: int = 100, module: str = ""):
+def api_due(limit: int = 100, module: str = "", all_due: int = 0):
     policy = refresh_exam_review()
     # rest = 周末休息：周六/周日不计复习任务，前端据此显示「周末休息」而不是「今天没有」。
     # include_rest=True：周末照样把「还没复习的」列出来，用户想练随时练（2026-10-30 口径）。
     where, args = _filters(cycle="due", module=module, include_rest=True)
+    daily = daily_selection(date.today(), exam_date())
+    pending = db.query_one(f"SELECT COUNT(*) c FROM math_problems WHERE {where}", args)["c"]
+    if not all_due:
+        ids = daily["ids"]
+        where += " AND id IN (" + (",".join("?" for _ in ids) or "NULL") + ")"
+        args = (*args,*ids)
     rows = db.query(
         f"SELECT p.* FROM math_problems p WHERE {where} ORDER BY "
         "(SELECT COUNT(*) FROM math_review_log l WHERE l.user_id=p.user_id AND l.problem_id=p.id "
@@ -1164,7 +1182,7 @@ def api_due(limit: int = 100, module: str = ""):
         (*args, (date.today()-timedelta(days=30)).isoformat(), max(1,min(int(limit),1000))),
     ) if policy["days_left"] > 0 else []
     items = [_row(r, with_analysis=False) for r in rows]
-    return {"items": items, "rest": db.is_rest_day() or policy["days_left"] <= 0}
+    return {"items": items, "rest": daily["rest"],"daily":daily,"pending":pending,"all_due":bool(all_due)}
 
 
 @router.get("/stats")

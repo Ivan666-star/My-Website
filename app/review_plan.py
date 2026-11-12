@@ -53,5 +53,7 @@ def arrange(conn: sqlite3.Connection, user_id: int | None = None) -> None:
             # 工作日确实不足时保留队列并由计划面板明确提示，不静默叠到同一天。
         for original, batch, day in schedule:
             for r in batch:
+                if r["planned_review"] == original and r["next_review"] == day.isoformat():
+                    continue
                 conn.execute("UPDATE math_problems SET planned_review=?,next_review=? WHERE id=?",
                              (original, day.isoformat(), r["id"]))

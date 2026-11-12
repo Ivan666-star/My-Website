@@ -60,7 +60,8 @@ class ExamReview(unittest.TestCase):
             b=math.create_problem("一般到期的新题",subject="高等数学")
             math.refresh_exam_review()
             db.execute("UPDATE math_problems SET planned_review='2026-01-01',next_review='2026-01-01' WHERE user_id=1")
-            db.execute("INSERT INTO math_review_log(user_id,problem_id,result) VALUES(1,?,'wrong')",(a["id"],))
+            db.execute("INSERT INTO math_review_log(user_id,problem_id,result,created_at) VALUES(1,?,'wrong',?)",
+                       (a["id"],(date.today()-timedelta(days=1)).isoformat()))
             self.assertEqual(math.api_due(module="math",limit=1)["items"][0]["id"],a["id"])
 
     def test_batches_are_kept_separate_before_exam(self):

@@ -2138,6 +2138,12 @@ $("#btnSettings").addEventListener("click", async () => {
                value="${esc(s.exam_date || "")}" style="max-width:190px">
         <button class="btn small" id="btnSaveExamDate">保存</button>
       </div>
+      <div class="w-group-title">每日错题建议量</div>
+      <p class="muted small">数学与信号共用每日时间预算。单题预计用时只用于估算建议量，难题可以少做，自主刷题不受限制。</p>
+      <div class="im-actions">
+        <label>每题约 <input type="number" id="reviewItemMinutes" min="1" max="30" class="field-input" style="width:80px" value="${Number(s.review_item_minutes) || 6}"> 分钟</label>
+        <button class="btn small" id="btnSaveReviewPace">保存</button>
+      </div>
       <div ${s.english_enabled ? "" : "hidden"}>
       <div class="w-group-title">学习阶段</div>
       <div class="im-actions">
@@ -2165,6 +2171,13 @@ $("#btnSettings").addEventListener("click", async () => {
       EXAM.date = v;
       toast("已保存考试日期");
       $("#btnSettings").click();
+    });
+    $("#btnSaveReviewPace").addEventListener("click", async () => {
+      try {
+        await api("/api/settings", {method:"POST",body:JSON.stringify({review_item_minutes:$("#reviewItemMinutes").value})});
+        toast("已调整每日建议量");
+        if (currentView === "math") refreshMathDue();
+      } catch (error) { toast(error.message,true); }
     });
     const lo = $("#btnLogout");
     if (lo) lo.addEventListener("click", () => { location.href = "/logout"; });
@@ -2537,6 +2550,8 @@ function route() {
       MATH.module = module;
       MATH.f.subject = module === "sig" ? "信号与系统" : "";
       MATH.f.topic = "";
+      MATH.listOffset = 0;
+      MATH.showAllDue = false;
       MATH.meta = null;
       MATH.openId = null;
       MATH.drill = null;
@@ -2748,9 +2763,9 @@ async function loadSubjects() {
     const MATH_SUBS = ["高等数学", "线性代数", "概率论与数理统计"];
     const mTotal = MATH_SUBS.reduce((n, s) => n + (bs[s] || 0), 0);
     const mDue = MATH_SUBS.reduce((n, s) => n + (bsd[s] || 0), 0);
-    SUBJECTS[1].stat = mTotal ? `${mTotal} 道错题 · ${mDue} 道今天该复习` : "还没有错题";
+    SUBJECTS[1].stat = mTotal ? `${mTotal} 道错题 · ${mDue} 道已到期` : "还没有错题";
     SUBJECTS[2].stat = (bs["信号与系统"] || 0)
-      ? `${bs["信号与系统"]} 道错题 · ${bsd["信号与系统"] || 0} 道今天该复习`
+      ? `${bs["信号与系统"]} 道错题 · ${bsd["信号与系统"] || 0} 道已到期`
       : "还没有错题";
     /* 🎓 上的角标只算数学模块 —— 信号的到期数不许出现在英语顶栏（模块隔离） */
     setMathBadge(mDue);
@@ -2803,6 +2818,12 @@ const MATH = {
                          // ⚠️ 两个模块共用引擎但互不相通 —— 列表 / 到期 / 随机刷题都只看本模块的科目
   items: [],
   due: [],
+  daily: null,
+  pending: 0,
+  showAllDue: false,
+  listOffset: 0,
+  listTotal: 0,
+  nextOffset: null,
   rest: false,           // 周末休息：周六/周日没有到期错题（见 db.is_rest_day）
   dueAnswers: new Map(), // 已揭示的到期题解析；未揭示前接口不返回解法
   f: { subject: "", topic: "", kind: "", q: "", cycle: "" },
@@ -3109,17 +3130,27 @@ async function loadMath() {
     const qs = new URLSearchParams();
     Object.entries(MATH.f).forEach(([k, v]) => { if (v) qs.set(k, v); });
     qs.set("with_analysis", "0");
+    qs.set("limit", "100");
+    qs.set("offset", String(MATH.listOffset));
     qs.set("module", module);        // ⚠️ 模块隔离：另一边的科目不许漏进来
     const [meta, list, due, plan] = await Promise.all([
       api("/api/math/meta?module=" + encodeURIComponent(module)),
       api("/api/math/problems?" + qs.toString()),
-      api("/api/math/review/due?module=" + encodeURIComponent(module)),
-      api("/api/math/review/plan?module=" + encodeURIComponent(module)),
+      api("/api/math/review/due?module=" + encodeURIComponent(module) + (MATH.showAllDue ? "&all_due=1&limit=20" : "")),
+      api("/api/math/review/plan?module=" + encodeURIComponent(module) + "&summary=1"),
     ]);
     if (request !== MATH.loadSeq || currentView !== "math" || MATH.module !== module) return;
     MATH.meta = meta;
     MATH.items = list.items || [];
+    if (!MATH.items.length && MATH.listOffset > 0) {
+      MATH.listOffset = Math.max(0,Math.floor((Math.max(1,list.total || 0)-1)/100)*100);
+      await loadMath(); return;
+    }
+    MATH.listTotal = list.total ?? ((meta.stats || {}).total || MATH.items.length);
+    MATH.nextOffset = list.next_offset;
     MATH.due = due.items || [];
+    MATH.daily = due.daily || null;
+    MATH.pending = due.pending ?? ((meta.stats || {}).pending || 0);
     MATH.plan = plan.days || [];
     MATH.reviewPolicy = plan.policy || {};
     /* 周末休息：周六/周日不计复习任务，但「还没复习的」照样列出来（2026-10-30） */
@@ -3138,14 +3169,14 @@ async function loadMath() {
 function mathPlanGridHtml() {
   return MATH.plan.map(day => `<div class="review-plan-day${day.rest ? " is-rest" : ""}">
         <b>${esc(day.date.slice(5))}</b><span>${["周日","周一","周二","周三","周四","周五","周六"][new Date(day.date + "T00:00:00").getDay()]}</span>
-        <span>${day.rest ? "休息 · 可自主刷题" : `${day.items.length} 道`}</span>
+        <span>${day.rest ? "休息 · 可自主刷题" : `${day.count ?? day.items.length} 道`}</span>
       </div>`).join("");
 }
 
 async function refreshMathPlan() {
   const module = MATH.module;
   try {
-    const plan = await api("/api/math/review/plan?module=" + encodeURIComponent(module));
+    const plan = await api("/api/math/review/plan?module=" + encodeURIComponent(module) + "&summary=1");
     if (module !== MATH.module || currentView !== "math") return;
     MATH.plan = plan.days || [];
     MATH.reviewPolicy = plan.policy || {};
@@ -3171,7 +3202,7 @@ function renderMath() {
   const head = `
     <div class="lib-summary">
       <div class="lib-sum-item"><b>${st.total || 0}</b><span>错题总量</span></div>
-      <div class="lib-sum-item"><b data-m-stat="due">${st.due || 0}</b><span>今日待复习</span></div>
+      <div class="lib-sum-item"><b data-m-stat="due">${st.pending || 0}</b><span>到期队列</span></div>
       <div class="lib-sum-item"><b data-m-stat="mastered">${st.mastered || 0}</b><span>已掌握</span></div>
       <div class="lib-sum-item"><b>${bs[chipKey] || 0}</b><span>${chipLabel}</span></div>
     </div>
@@ -3193,7 +3224,8 @@ function renderMath() {
       <p class="muted small">早期按 1、2、4、7、15、30、60 天逐步巩固；考前 120 天、60 天、30 天和最后一周，最长间隔分别收紧到 30、14、7、3 天。阶段交界会安排回顾，遇周末顺延。做错仍从短间隔重新开始。</p>
     </details>
     ${policy.beyond_exam ? `<p class="math-warn">有 ${Number(policy.beyond_exam)} 道题因批次顺延超出考试日期，请在考前优先自主回顾；系统没有把这些题都挤到周一。</p>` : ""}
-    <details class="card review-plan"><summary>未来两周复习计划 · 周末休息</summary>
+    <details class="card review-plan"><summary>未来两周复习计划（到期分布）</summary>
+      <p class="muted small">下面是到期题量分布，实际每天只推荐时间预算内的一部分；剩余题目保留在队列中。周末不布置任务。</p>
       <p class="muted small">首次录入后 1 天复习；每次做对后间隔依次为 2、4、7、15、30、60 天，做错回到 1 天。实际按日期批次安排到工作日：周六→周一、周日→周二，后续批次继续顺延。提前完成的题会安排下一次复习。</p>
       <div class="review-plan-grid">${mathPlanGridHtml()}</div>
     </details>
@@ -3220,7 +3252,12 @@ function renderMath() {
     ? MATH.items.map(mathCard).join("")
     : `<p class="center muted" style="margin:26px 0">还没有错题。点「＋ 拍照录题」，一次可以丢好几张照片进来。</p>`;
 
-  $("#pageBody-math").innerHTML = head + `<div class="math-list">${list}</div>`;
+  $("#pageBody-math").innerHTML = head + `<div class="math-list">${list}</div>
+    <div class="math-actions" style="margin:16px 0">
+      <button class="btn small" id="mathListPrev" ${MATH.listOffset ? "" : "disabled"}>上一页</button>
+      <span class="muted small">共 ${MATH.listTotal} 道 · 第 ${Math.floor(MATH.listOffset/100)+1} 页</span>
+      <button class="btn small" id="mathListNext" ${MATH.nextOffset == null ? "disabled" : ""}>下一页</button>
+    </div>`;
   /* 草案区 / 刷题区是独立容器，renderMath 会把它们一起换掉，
      所以这里必须补画一次 —— 否则切个筛选就把正在刷的题弄没了。 */
   renderDraft();
@@ -4072,6 +4109,7 @@ async function mathSaveAll() {
   MATH.drafts = MATH.drafts.filter(d => d.status !== "saved");
   if (!MATH.drafts.length) MATH.draftOpen = false;
   MATH.meta = null;                 // 统计要重算
+  MATH.listOffset = 0;
   MATH.saveRunning = false;
   await loadMath();
   toast(`已存入错题库 ${ok} 道${fail ? `，${fail} 道失败` : ""}`, !!fail);
@@ -4105,6 +4143,15 @@ function renderDrill() {
   const box = $("#mathDrillWrap");
   if (!box) return;
   const p = MATH.drill;
+  const daily = MATH.daily;
+  const workload = daily ? `<section class="card" style="margin:16px 0;padding:16px" id="mathWorkload">
+    <b>${MATH.rest ? "今天不布置复习任务" : `今日建议剩余 ${daily.remaining} 道（数学与信号合计）`}</b>
+    <p class="muted small">每天 ${daily.minutes_min}～${daily.minutes_max} 分钟，初步按每题约 ${daily.item_minutes} 分钟估算。
+      今天已练 ${daily.completed} 道；${MATH.module === "sig" ? "信号" : "数学"}到期队列 ${MATH.pending} 道，无需今天全部刷完。
+      做题较慢时可以少做，也可以在设置里调整单题预计用时。</p>
+    ${MATH.pending || MATH.showAllDue ? `<button class="btn small" id="mathDueToggle">${MATH.showAllDue ? "返回今日建议" : (MATH.rest ? "查看可选练习" : "自主查看到期队列")}</button>` : ""}
+    ${MATH.showAllDue ? `<p class="muted small">当前是自主练习，不计为额外任务；本页显示 ${MATH.due.length} 道，可在题库按到期状态分页查看。</p>` : ""}
+  </section>` : "";
   /* 周末休息（2026-10-19 / 2026-10-30）：
      · 休息日「今天该复习的错题」计数是 0、角标不亮；
      · 但还没复习的题照样列出来（后端 include_rest），用户想练随时练，练完照常推进间隔。
@@ -4113,7 +4160,7 @@ function renderDrill() {
     <section class="math-due" aria-label="${MATH.rest ? "周末可选题" : "今天该复习的错题"}">
       <div class="math-sec-title">${MATH.rest
         ? `🌴 周末可选练习：还没复习的错题（${MATH.due.length}）`
-        : `今天该复习的错题（${MATH.due.length}）`}</div>
+        : `${MATH.showAllDue ? "自主练习 · 到期题" : "当前科目今日建议"}（${MATH.due.length}）`}</div>
       ${MATH.rest ? `<p class="muted small" style="margin:0 0 10px;line-height:1.8">
         周末不算复习任务，这些是攒着还没复习的题 —— 想练就练，练完照常往下排；
         一个都不动也没关系，周一照旧。
@@ -4135,7 +4182,7 @@ function renderDrill() {
         周末不排复习任务，手头也没有欠着的错题。想自己做几道，随时点顶栏「开始刷题」。
       </p>
     </section>` : "");
-  if (!p) { box.innerHTML = due; return; }
+  if (!p) { box.innerHTML = workload + due; return; }
   const img = p.has_image
     ? `<img class="math-photo" src="/api/math/problems/${p.id}/image" alt="原题照片">` : "";
   box.innerHTML = `
@@ -4150,7 +4197,20 @@ function renderDrill() {
         <button class="btn small warnish" data-m-res="wrong">❌ 不会做</button>
         <button class="btn tiny" data-m-close-drill="1">关闭</button>
       </div>
-    </div>${due}`;
+    </div>${workload}${due}`;
+}
+
+async function refreshMathDue() {
+  const module = MATH.module, epoch = MATH.loadSeq;
+  const request = MATH.dueRequest = (MATH.dueRequest || 0) + 1;
+  try {
+    const due = await api("/api/math/review/due?module="+encodeURIComponent(module)+(MATH.showAllDue ? "&all_due=1&limit=20" : ""));
+    if (currentView !== "math" || MATH.module !== module || MATH.loadSeq !== epoch || MATH.dueRequest !== request) return;
+    MATH.due = due.items || []; MATH.daily = due.daily || null; MATH.pending = due.pending || 0; MATH.rest = !!due.rest;
+    const count = document.querySelector('[data-m-stat="due"]');
+    if (count) count.textContent = MATH.pending;
+    renderDrill(); bumpMathDueCount();
+  } catch { toast("复习已记录，建议清单暂未刷新，可重新打开题库",true); }
 }
 
 /* 开始刷题：从**本模块全部**错题里随机抽一道 —— 用户 2026-10-07 明确口径「从我所有错题
@@ -4199,6 +4259,9 @@ document.addEventListener("click", async e => {
   }
 
   if (!e.target.closest("#pageBody-math")) return;
+  if (e.target.closest("#mathDueToggle")) { MATH.showAllDue = !MATH.showAllDue; await refreshMathDue(); return; }
+  if (e.target.closest("#mathListNext")) { MATH.listOffset = MATH.nextOffset || 0; await loadMath(); return; }
+  if (e.target.closest("#mathListPrev")) { MATH.listOffset = Math.max(0,MATH.listOffset-100); await loadMath(); return; }
 
   /* --- 清理历史遗留的原图（新录的题已经不留图了） --- */
   if (e.target.closest("#mathPurgeImg")) {
@@ -4411,6 +4474,7 @@ document.addEventListener("click", async e => {
       /* 计数是本地推的：不为了两个数字去重拉整页 */
       bumpMathDueCount();
       refreshMathPlan();
+      refreshMathDue();
       toast({ right: "做对了，下次间隔拉长", wrong: "没关系，已安排下次工作日复习", skip: "已顺延到后续工作日",
               drop: "已移出复习周期" }[act] || "已记录");
     } catch (err) { toast(err.message, true); dueResult.disabled = false; }
@@ -4437,6 +4501,7 @@ document.addEventListener("click", async e => {
       renderDrill();
       bumpMathDueCount();
       refreshMathPlan();
+      refreshMathDue();
     } catch (err) { toast(err.message, true); res.disabled = false; }
     return;
   }
@@ -4490,6 +4555,7 @@ document.addEventListener("change", async e => {
 
   if (!e.target.closest("#pageBody-math")) return;
   /* 筛选条件变了 → 重新拉列表 */
+  if (["mfSubject","mfTopic","mfKind","mfCycle"].includes(id)) MATH.listOffset = 0;
   if (id === "mfSubject") { MATH.f.subject = e.target.value; MATH.f.topic = ""; await loadMath(); return; }
   if (id === "mfTopic")   { MATH.f.topic = e.target.value; await loadMath(); return; }
   if (id === "mfKind")    { MATH.f.kind = e.target.value; await loadMath(); return; }
@@ -4500,6 +4566,7 @@ document.addEventListener("change", async e => {
 let _mathQTimer = null;
 document.addEventListener("input", e => {
   if (e.target.id !== "mfQ") return;
+  MATH.listOffset = 0;
   MATH.f.q = e.target.value;
   clearTimeout(_mathQTimer);
   _mathQTimer = setTimeout(() => loadMath(), 350);
