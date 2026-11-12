@@ -105,7 +105,7 @@ with db.as_user(UID_A):
     p2 = M.create_problem("7. 设 $A$ 为 3 阶矩阵，求 $|A|$。", subject="线性代数",
                           topic="行列式", kind="exam")
     check("建档成功", bool(p1 and p1["id"]))
-    check("首刷日期 = 今天 +3 天", p1["next_review"] == plus(3), f"({p1['next_review']})")
+    check("首刷日期 = 今天 +1 天", p1["next_review"] == plus(1), f"({p1['next_review']})")
     check("kind_label 正确", p2["kind_label"] == "考研真题错题", f"({p2['kind_label']})")
     check("in_cycle 为真", p1["in_cycle"] is True)
     check("未解析时 analyzed=False", p1["analyzed"] is False)
@@ -149,14 +149,14 @@ print("\n[4] 复习阶梯")
 with db.as_user(UID_A):
     pid = M.create_problem("阶梯测试题", subject="高等数学")["id"]
     seq = []
-    for _ in range(len(M.REVIEW_INTERVALS)):
+    for _ in range(M.MASTERED_AT):
         r = M.apply_result(pid, "right")
         seq.append(r["next_review"])
-    expect = [plus(d) for d in M.REVIEW_INTERVALS]
+    expect = [plus(d) for d in M.REVIEW_INTERVALS[1:]]
     check("连续做对依次推到 " + "/".join(str(d) for d in M.REVIEW_INTERVALS),
           seq == expect, f"(实得 {seq})")
     check("达到 MASTERED_AT 后 mastered=True", fetch(pid)["mastered"] is True)
-    check("MASTERED_AT 与阶梯长度一致", M.MASTERED_AT == len(M.REVIEW_INTERVALS))
+    check("MASTERED_AT 与阶梯长度一致", M.MASTERED_AT == len(M.REVIEW_INTERVALS) - 1)
 
     r = M.apply_result(pid, "wrong")
     check("做错 → 计数归零", r["review_count"] == 0, f"(实得 {r['review_count']})")
@@ -171,10 +171,10 @@ with db.as_user(UID_A):
     check("已掌握的筛不出这条", all(x["id"] != pid for x in M.list_problems(cycle="mastered")))
 
     r = M.apply_result(pid, "readd")
-    check("重新加入 → 回到 +3 天", r["in_cycle"] is True and r["next_review"] == plus(3))
+    check("重新加入 → 回到 +1 天", r["in_cycle"] is True and r["next_review"] == plus(1))
 
     log = M.review_log(pid)
-    check("复习历史已留痕", len(log) == len(M.REVIEW_INTERVALS) + 4, f"(实得 {len(log)})")
+    check("复习历史已留痕", len(log) == M.MASTERED_AT + 4, f"(实得 {len(log)})")
     check("历史里的 result 都是已知动作",
           all(x["result"] in M.REVIEW_ACTIONS for x in log))
 

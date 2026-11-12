@@ -134,14 +134,13 @@ def normalize_math_delims(text: str) -> str:
 
 
 # ============================================================
-# 定期复习阶梯（计划书第十四节：3 / 7 / 14 / 30 天）
+# 前密后疏的间隔复习；这些是可执行的默认参数，并非唯一的记忆曲线公式。
 # ------------------------------------------------------------
-# ⚠️ MASTERED_AT 一律 = 阶梯长度，不要另写一个数：
-#    第 n 次做对用的是 INTERVALS[n-1]，硬编码 4 会和「已推到 30 天」对不上。
+# 首次录入用第 0 档；第 n 次做对用第 n 档，避免第一次做对仍重复第一档。
 # 间隔先生成原计划日期，再按日期批次顺延；周末不布置复习，随时可以自主刷题。
 # ============================================================
-REVIEW_INTERVALS = [3, 7, 14, 30, 60]
-MASTERED_AT = len(REVIEW_INTERVALS)
+REVIEW_INTERVALS = [1, 2, 4, 7, 15, 30, 60]
+MASTERED_AT = len(REVIEW_INTERVALS) - 1
 _NOT_IN_CYCLE = "next_review IS NULL OR next_review=''"
 
 # 复习动作（返回给前端的说明文案也由这里派生）
@@ -370,12 +369,12 @@ def _filters(subject="", topic="", kind="", q="", cycle="", module="", include_r
         parts.append("kind=?")
         args.append(kind)
     if q:
-        # 关键词搜题干 + 知识点 + 解法（转义 LIKE 元字符）
+        # 只搜索题干和最终答案，历史解析不再参与搜索。
         like = "%" + str(q).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
         parts.append(
-            "(stem LIKE ? ESCAPE '\\' OR knowledge LIKE ? ESCAPE '\\' OR solution LIKE ? ESCAPE '\\')"
+            "(stem LIKE ? ESCAPE '\\' OR answer LIKE ? ESCAPE '\\')"
         )
-        args += [like, like, like]
+        args += [like, like]
     if cycle == "due":
         # 周末休息：周六/周日不排复习，默认到期队列为空（见 db.is_rest_day）。
         # 写 1=0 而不是在调用处提前 return：列表、随机刷题都共用这一条过滤。
@@ -521,7 +520,7 @@ def apply_result(pid: int, result: str) -> dict | None:
         rc, nxt = 0, (today + timedelta(days=1)).isoformat()
     elif result == "right":
         rc = rc + 1
-        nxt = (today + timedelta(days=REVIEW_INTERVALS[min(rc - 1, len(REVIEW_INTERVALS) - 1)])).isoformat()
+        nxt = (today + timedelta(days=REVIEW_INTERVALS[min(rc, len(REVIEW_INTERVALS) - 1)])).isoformat()
     elif result == "skip":
         nxt = (today + timedelta(days=1)).isoformat()
     elif result == "drop":
@@ -554,6 +553,30 @@ def review_log(pid: int) -> list[dict]:
         f"SELECT * FROM math_review_log WHERE problem_id=? AND {w} ORDER BY id DESC",
         (int(pid), *a),
     )
+
+
+def adopt_spaced_review() -> int:
+    """当前账号一次性采用新间隔，保留做题次数和日志，不产生过去日期的补做任务。"""
+    uid = db.require_user()
+    policy_key = "math_spaced_review_20261112"
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute("SELECT 1 FROM user_profile WHERE user_id=? AND key=?", (uid, policy_key)).fetchone():
+            return 0
+        rows = conn.execute(
+            "SELECT id,review_count,last_review_at,created_at FROM math_problems "
+            "WHERE user_id=? AND COALESCE(next_review,'')<>''", (uid,),
+        ).fetchall()
+        for row in rows:
+            anchor = str(row["last_review_at"] or row["created_at"] or date.today().isoformat())[:10]
+            base = date.fromisoformat(anchor)
+            gap = REVIEW_INTERVALS[min(max(int(row["review_count"] or 0), 0), len(REVIEW_INTERVALS) - 1)]
+            planned = max(base + timedelta(days=gap), date.today() + timedelta(days=1)).isoformat()
+            conn.execute("UPDATE math_problems SET planned_review=?,next_review=? WHERE id=? AND user_id=?",
+                         (planned, planned, row["id"], uid))
+        arrange(conn, uid)
+        conn.execute("INSERT INTO user_profile(user_id,key,value) VALUES(?,?,?)", (uid, policy_key, "1"))
+    return len(rows)
 
 
 # ============================================================
@@ -633,15 +656,14 @@ EXTRACT_SYSTEM = """你是考研理科错题库（数学 / 信号与系统）的
 - 每个 \\begin{...} 都必须有配对的 \\end{...}，不要写出没闭合的环境。
 
 【第三件：给出分类建议】
-按题意判断它属于哪个科目、哪个专题，以及更像历年考研真题还是普通练习。
+只判断科目及题目类型；不要生成知识点、专题或解析。
 这只是建议，用户后面能改，所以拿不准就照实说。
 
 输出必须是**严格 JSON**，不要 markdown 代码围栏，不要任何解释性前后缀：
 {
   "stem": "题干原文（含 LaTeX）",
-  "answer": "最终答案（照片里没有就自己解出来；只给答案，不要过程）",
+  "answer": "仅摘录明确对应的印刷最终答案；没有就给空字符串，不在录题阶段解题",
   "subject": "必须是给定清单里的一个科目；判断不出来给空字符串",
-  "topic": "必须是该科目下列出的专题之一；判断不出来给空字符串",
   "kind": "exam=历年考研真题 / normal=普通练习题；拿不准给 normal",
   "uncertain": ["转录时没把握的地方，例如『指数 2 与 3 分不清』；没有就给空数组"]
 }"""
@@ -683,11 +705,11 @@ def clean_extracted_stem(text: str) -> str:
 
 
 def build_extract_prompt(hint_subject: str = "", hint_topic: str = "", marker: dict | None = None) -> str:
-    topics_txt = "\n".join(f"- {s}：{' / '.join(ts)}" for s, ts in TOPICS.items())
+    subjects_txt = " / ".join(SUBJECTS)
     hint = ""
-    if hint_subject or hint_topic:
+    if hint_subject:
         hint = (
-            f"\n用户自己填的线索：科目={hint_subject or '未填'}，专题={hint_topic or '未填'}"
+            f"\n用户自己填的线索：科目={hint_subject}"
             "（仅供参考，以照片为准）"
         )
     if marker:
@@ -698,8 +720,8 @@ def build_extract_prompt(hint_subject: str = "", hint_topic: str = "", marker: d
         )
     return f"""请转录这张照片里的题干，并给出分类建议。{hint}
 
-可选的科目与专题清单（subject / topic 只能从这里选）：
-{topics_txt}"""
+可选科目（subject 只能从这里选）：{subjects_txt}
+无需知识点、专题或解题过程。"""
 
 
 def extract_from_image(image_data: str, *, hint_subject: str = "", hint_topic: str = "",
@@ -883,7 +905,7 @@ def api_meta(module: str = ""):
 def api_list(
     subject: str = "", topic: str = "", kind: str = "",
     q: str = "", cycle: str = "", module: str = "",
-    limit: int = 200, with_analysis: int = 1,
+    limit: int = 200, with_analysis: int = 0,
 ):
     return {
         "items": list_problems(
@@ -895,7 +917,7 @@ def api_list(
 
 @router.get("/problems/{pid}")
 def api_detail(pid: int):
-    row = _row(_get(pid))
+    row = _row(_get(pid), with_analysis=False)
     if not row:
         raise HTTPException(404, "错题不存在")
     row["review_log"] = review_log(pid)
@@ -1015,13 +1037,9 @@ def api_delete(pid: int):
 
 @router.post("/problems/{pid}/analyze")
 def api_analyze(pid: int):
-    try:
-        row = analyze(pid)
-    except AIError as exc:
-        raise HTTPException(502, str(exc)) from exc
-    if not row:
+    if not _get(pid):
         raise HTTPException(404, "错题不存在")
-    return {"ok": True, "problem": row}
+    raise HTTPException(409, "错题库仅保留题干与最终答案，知识点和解析生成已停用")
 
 
 @router.post("/problems/{pid}/answer")

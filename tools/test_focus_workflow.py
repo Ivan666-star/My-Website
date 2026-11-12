@@ -83,8 +83,8 @@ class FocusWorkflow(unittest.TestCase):
             self.assertTrue(math.api_due(module="math")["rest"])
             self.assertIsNotNone(math.random_problem(module="math"))
             result = math.apply_result(pid, "right")
-            self.assertEqual(result["next_review"], "2026-11-17")
-            self.assertEqual(result["planned_review"], "2026-11-17")
+            self.assertEqual(result["next_review"], "2026-11-16")
+            self.assertEqual(result["planned_review"], "2026-11-16")
             self.assertEqual(result["review_count"], 1)
 
     def test_save_retry_is_idempotent_and_scoped(self):
@@ -124,6 +124,58 @@ class FocusWorkflow(unittest.TestCase):
             self.assertIsNone(scheduler.start_scheduler())
             scheduler._try_generate_today()
             generate.assert_not_called()
+
+    def test_spaced_review_starts_early_and_expands_after_success(self):
+        class StudyDate(date):
+            value = date(2026, 11, 9)
+            @classmethod
+            def today(cls):
+                return cls.value
+        with db.as_user(1), patch.object(math, "date", StudyDate):
+            p = math.create_problem("间隔复习测试", subject="高等数学")
+            self.assertEqual(p["next_review"], "2026-11-10")
+            for gap in (2, 4, 7, 15, 30, 60):
+                StudyDate.value = date.fromisoformat(p["next_review"])
+                p = math.apply_result(p["id"], "right")
+                self.assertEqual((date.fromisoformat(p["planned_review"]) - StudyDate.value).days, gap)
+                self.assertLess(date.fromisoformat(p["next_review"]).weekday(), 5)
+            self.assertTrue(p["mastered"])
+            StudyDate.value = date(2027, 5, 3)
+            p = math.apply_result(p["id"], "wrong")
+            self.assertEqual(p["review_count"], 0)
+            self.assertEqual(p["next_review"], "2027-05-04")
+
+    def test_answer_only_interface_and_search(self):
+        from fastapi import HTTPException
+        with db.as_user(1):
+            p = math.create_problem("一道题", subject="高等数学", answer="最终结果ABC")
+            math.update_problem(p["id"], {"knowledge": "旧知识点XYZ", "solution": "旧解析"})
+            self.assertEqual(math.api_detail(p["id"])["knowledge"], "")
+            self.assertEqual(math.api_list()["items"][0]["solution"], "")
+            self.assertEqual(len(math.list_problems(q="结果ABC")), 1)
+            self.assertEqual(math.list_problems(q="知识点XYZ"), [])
+            with patch.object(math, "get_provider") as provider:
+                with self.assertRaises(HTTPException) as rejected:
+                    math.api_analyze(p["id"])
+                self.assertEqual(rejected.exception.status_code, 409)
+                provider.assert_not_called()
+
+    def test_adopting_new_policy_preserves_work_and_runs_once(self):
+        class Today(date):
+            @classmethod
+            def today(cls):
+                return date(2026, 11, 12)
+        with db.as_user(1), patch.object(math, "date", Today):
+            p = math.create_problem("保留的题干", answer="保留的答案", subject="高等数学")
+            db.execute("UPDATE math_problems SET created_at='2026-11-01',last_review_at='2026-11-09',review_count=1,next_review='2026-11-25' WHERE id=?", (p["id"],))
+            self.assertEqual(math.adopt_spaced_review(), 1)
+            updated = math._get(p["id"])
+            self.assertEqual(updated["review_count"], 1)
+            self.assertEqual(updated["stem"], "保留的题干")
+            self.assertEqual(updated["answer"], "保留的答案")
+            self.assertEqual(updated["next_review"], "2026-11-13")
+            self.assertEqual(math.adopt_spaced_review(), 0)
+            self.assertEqual(math._get(p["id"])["next_review"], "2026-11-13")
 
     def test_migration_preserves_original_and_is_idempotent(self):
         with db.as_user(1):

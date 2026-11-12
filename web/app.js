@@ -2973,7 +2973,6 @@ function mathStatusChip(it) {
 function mathChips(it) {
   const parts = [];
   if (it.subject) parts.push(`<span class="chip accent">${esc(it.subject)}</span>`);
-  if (it.topic) parts.push(`<span class="chip">${esc(it.topic)}</span>`);
   parts.push(`<span class="chip${it.kind === "exam" ? " exam-chip" : ""}">${esc(it.kind_label || "")}</span>`);
   parts.push(mathStatusChip(it));
   /* 原来这里挂的是「未解析」——那是要生成解析的年代留下的。
@@ -3073,7 +3072,7 @@ function setMathLibBadge(n) {
   const btn = $("#btnMathLib");
   if (btn) btn.title = v > 0
     ? `错题总库：今天有 ${v} 道该复习（${MATH.module === "sig" ? "信号与系统" : "数学"}）`
-    : "错题总库：每道错题 + 它对应的知识点";
+    : "错题总库：题干与最终答案";
 }
 
 /* 顶栏那个科目入口上的角标 = 今天该复习几道错题。拿不到就当 0，别打断首屏。
@@ -3109,7 +3108,7 @@ async function loadMath() {
   try {
     const qs = new URLSearchParams();
     Object.entries(MATH.f).forEach(([k, v]) => { if (v) qs.set(k, v); });
-    qs.set("with_analysis", "1");
+    qs.set("with_analysis", "0");
     qs.set("module", module);        // ⚠️ 模块隔离：另一边的科目不许漏进来
     const [meta, list, due, plan] = await Promise.all([
       api("/api/math/meta?module=" + encodeURIComponent(module)),
@@ -3184,14 +3183,12 @@ function renderMath() {
     <div id="mathDraftWrap"></div>
     <div id="mathDrillWrap"></div>
     <details class="card review-plan"><summary>未来两周复习计划 · 周末休息</summary>
-      <p class="muted small">原计划按 3 / 7 / 14 / 30 / 60 天生成，再按日期批次安排到工作日：周六→周一、周日→周二，后续批次继续顺延。提前完成的题会安排下一次复习。</p>
+      <p class="muted small">首次录入后 1 天复习；每次做对后间隔依次为 2、4、7、15、30、60 天，做错回到 1 天。实际按日期批次安排到工作日：周六→周一、周日→周二，后续批次继续顺延。提前完成的题会安排下一次复习。</p>
       <div class="review-plan-grid">${mathPlanGridHtml()}</div>
     </details>
     <div class="field-row math-filter">
       <label class="field"><span>科目</span>
         <select id="mfSubject">${mathSubjectOpts(MATH.f.subject)}</select></label>
-      <label class="field"><span>专题</span>
-        <select id="mfTopic">${mathTopicOpts(MATH.f.subject, MATH.f.topic)}</select></label>
       <label class="field"><span>类型</span>
         <select id="mfKind"><option value="">全部</option>${mathKindOpts(MATH.f.kind)}</select></label>
     </div>
@@ -3204,7 +3201,7 @@ function renderMath() {
           <option value="mastered"${MATH.f.cycle === "mastered" ? " selected" : ""}>已掌握</option>
           <option value="out"${MATH.f.cycle === "out" ? " selected" : ""}>已移出</option>
         </select></label>
-      <label class="field"><span>搜索题干 / 知识点 / 解法</span>
+      <label class="field"><span>搜索题干 / 最终答案</span>
         <input class="field-input" id="mfQ" value="${esc(MATH.f.q)}" placeholder="例如：特征值、中值定理、傅里叶变换"></label>
     </div>`;
 
@@ -3227,13 +3224,6 @@ function markClampedMath() {
   document.querySelectorAll(".math-stem.clamp").forEach(el => {
     el.classList.toggle("is-clamped", el.scrollHeight > el.clientHeight + 2);
   });
-}
-
-/* 库里的每道题都该看得见「它对的是什么知识点」（用户 2026-10-07 口径：
-   「错题总库就是这道题和它所对应的知识点」）—— 所以别再藏在「展开」里。 */
-function mathKpHtml(it) {
-  if (!it.knowledge) return "";
-  return `<div class="math-kp"><span class="kp-tag">知识点</span><div class="kp-content">${mathMtex(it.knowledge)}</div></div>`;
 }
 
 function mathCard(it) {
@@ -3269,7 +3259,6 @@ function mathCard(it) {
     <div class="card math-card${open ? " open" : ""}" data-m-id="${it.id}">
       <div class="math-chips">${mathChips(it)}</div>
       <div class="math-stem${open ? "" : " clamp"}" title="${esc(mathPlain(it.stem, 120))}">${mathMtex(it.stem)}</div>
-      ${mathKpHtml(it)}
       ${mathAnswerBlock(it)}
       ${quickButtons}
       ${open ? img : ""}
@@ -3821,7 +3810,7 @@ async function mathExtractWorker() {
       // AI 归类：用户没手动动过分类时才覆盖，别把人改的又冲掉
       if (!d.touched) {
         d.subject = r.subject || d.subject || "";
-        d.topic = r.topic || "";
+        d.topic = "";
         d.kind = r.kind || "normal";
         /* 模块隔离：在信号页录的题，AI 看走眼认成数学也不收 ——
            强制回到信号科目；它配的专题若不在信号树里就丢掉，别带进数学的树 */
@@ -3885,7 +3874,6 @@ function aiClassifyHtml(d) {
   if (d.status === "extracting") return `<div class="ai-class muted">AI 正在读题并归类…</div>`;
   const parts = [];
   if (d.subject) parts.push(d.subject);
-  if (d.topic) parts.push(d.topic);
   if (d.kind) parts.push(mathKindLabel(d.kind));
   if (!parts.length) {
     return `<div class="ai-class muted">AI 没能判断出分类（照片可能不够清楚），自己选一下就行</div>`;
@@ -3958,8 +3946,6 @@ function draftCard(d) {
       <div class="field-row">
         <label class="field"><span>科目</span>
           <select class="math-draft-subject">${mathSubjectOpts(d.subject)}</select></label>
-        <label class="field"><span>专题</span>
-          <select class="math-draft-topic">${mathTopicOpts(d.subject, d.topic)}</select></label>
         <label class="field"><span>类型</span>
           <select class="math-draft-kind">${mathKindOpts(d.kind)}</select></label>
       </div>
@@ -3994,7 +3980,7 @@ function renderDraft() {
           ${busy ? "识别中…" : (n ? `全部保存（${n} 道）` : "全部保存")}</button>
         <button class="btn ghost" id="mathCancel">关闭</button>
       </div>
-      <p class="muted small" style="margin-top:8px">保存后按 3 → 7 → 14 → 30 → 60 天生成复习计划，周末批次与后续批次依次顺延到工作日。</p>
+      <p class="muted small" style="margin-top:8px">首次复习在 1 天后；做对后逐步间隔 2、4、7、15、30、60 天，做错回到 1 天；周末批次依次顺延。</p>
     </div>
     ${MATH.drafts.length ? `<div class="math-draft-list">${MATH.drafts.map(draftCard).join("")}</div>` : ""}`;
 }
@@ -4029,8 +4015,7 @@ function paintDraftCard(key) {
   if (pv) pv.innerHTML = d.stem ? mathMtex(d.stem) : `<span class="muted">${d.status === "manual" ? "输入题干后会显示在这里" : "识别完会自动显示在这里"}</span>`;
   const ss = el.querySelector(".math-draft-subject");
   if (ss) ss.value = d.subject || "";
-  const ts = el.querySelector(".math-draft-topic");
-  if (ts) ts.innerHTML = mathTopicOpts(d.subject, d.topic);
+
   const ks = el.querySelector(".math-draft-kind");
   if (ks) ks.value = d.kind || "normal";
   mathSyncSaveBtn();

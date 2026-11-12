@@ -189,27 +189,29 @@ def main() -> int:
             checks.append(("周五填充的笔记 → 首次复习排到周一",
                            nfri.get("next_review") == "2026-10-19", str(nfri.get("next_review"))))
             pfri = math.create_problem("周五录的题", subject="高等数学")
-            checks.append(("周五录题（+3 天），前一批占周一，顺延到周二",
-                           pfri.get("next_review") == "2026-10-20", str(pfri.get("next_review"))))
+            checks.append(("周五录题，首次 1 天后落周六，顺延到周一",
+                           pfri.get("next_review") == "2026-10-19", str(pfri.get("next_review"))))
 
             freeze(WED)
             pwed = math.create_problem("周三录的题", subject="高等数学")
-            checks.append(("周三录题（+3 天跨周末），保留已公布批次顺序",
-                           pwed.get("next_review") == "2026-10-26", str(pwed.get("next_review"))))
+            checks.append(("周三录题，首次 1 天后排周四",
+                           pwed.get("next_review") == "2026-10-22", str(pwed.get("next_review"))))
 
-            # 关键回归：同一天「+2 个工作日」和「+3 个工作日」不能落在同一天
-            # （以前都是「撞到周末 → 顺延到周一」，两档会叠在一起）
+            # 周六、周日两批任务分别顺延到周一、周二。
+            from app.review_plan import arrange
             freeze(THU)
-            pa = math.create_problem("周四题 A（+3 个工作日）", subject="高等数学")
-            pb = math.create_problem("周四题 B（+2 个工作日）", subject="高等数学")
-            db.execute("UPDATE math_problems SET next_review=? WHERE id=?",
-                       (db.review_day(2, base=THU), pb["id"]))
+            pa = math.create_problem("周六批次", subject="高等数学")
+            pb = math.create_problem("周日批次", subject="高等数学")
+            with db.connect() as conn:
+                conn.execute("UPDATE math_problems SET planned_review='2026-10-24',next_review='2026-10-24' WHERE id=?", (pa["id"],))
+                conn.execute("UPDATE math_problems SET planned_review='2026-10-25',next_review='2026-10-25' WHERE id=?", (pb["id"],))
+                arrange(conn, UID)
             rows = db.query(
                 "SELECT next_review FROM math_problems WHERE id IN (?,?) ORDER BY next_review",
                 (pa["id"], pb["id"]),
             )
             dates = [r["next_review"] for r in rows]
-            checks.append(("周四 +2 与 +3 落在不同工作日（不叠加）",
+            checks.append(("周六、周日两批分别排到周一、周二",
                            dates == ["2026-10-26", "2026-10-27"], str(dates)))
 
             # ---------- 4. 逾期（含历史周末日期）照样带得出来 ----------
@@ -235,7 +237,7 @@ def main() -> int:
                 conn.row_factory = sqlite3.Row
                 conn.execute("UPDATE favorites SET next_review='2026-10-17' WHERE id=?", (fav,))
                 conn.execute("UPDATE reading_notes SET next_review='2026-10-18' WHERE id=?", (note["id"],))
-                conn.execute("UPDATE math_problems SET next_review='2026-10-17' WHERE id=?", (prob["id"],))
+                conn.execute("UPDATE math_problems SET planned_review='2026-10-17',next_review='2026-10-17' WHERE id=?", (prob["id"],))
                 db._migrate(conn)
                 got = {
                     "fav": conn.execute("SELECT next_review FROM favorites WHERE id=?", (fav,)).fetchone()[0],
