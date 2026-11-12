@@ -51,6 +51,8 @@ class Settings:
         )
 
         # ---- 学习策略 ----
+        # 当前专注数学与信号；可显式恢复英语，历史内容不删除。
+        self.english_enabled = os.getenv("ENGLISH_ENABLED", "0").strip().lower() in ("1", "true", "yes", "on")
         # 每天几点自动准备当天内容（24 小时制）
         self.daily_hour = int(os.getenv("DAILY_GENERATE_HOUR", "6"))
         # 当前阶段：基础期 / 强化期 / 冲刺期，影响内容配比

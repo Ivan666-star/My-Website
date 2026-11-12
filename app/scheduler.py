@@ -56,6 +56,8 @@ def active_user_ids() -> list[int]:
 
 
 def _try_generate_today() -> None:
+    if not settings.english_enabled:
+        return
     with _lock:
         if _state["running"]:
             return
@@ -98,10 +100,10 @@ async def _loop() -> None:
 
 
 def start_scheduler() -> asyncio.Task | None:
-    if not settings.ai_ready:
+    if not settings.english_enabled or not settings.ai_ready:
         return None
     return asyncio.create_task(_loop())
 
 
 def state() -> dict:
-    return dict(_state)
+    return {**_state, "enabled": settings.english_enabled}

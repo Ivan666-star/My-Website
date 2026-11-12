@@ -189,12 +189,12 @@ def main() -> int:
             checks.append(("周五填充的笔记 → 首次复习排到周一",
                            nfri.get("next_review") == "2026-10-19", str(nfri.get("next_review"))))
             pfri = math.create_problem("周五录的题", subject="高等数学")
-            checks.append(("周五录题（+3 个工作日）→ 首次复习 2026-10-21",
-                           pfri.get("next_review") == "2026-10-21", str(pfri.get("next_review"))))
+            checks.append(("周五录题（+3 天），前一批占周一，顺延到周二",
+                           pfri.get("next_review") == "2026-10-20", str(pfri.get("next_review"))))
 
             freeze(WED)
             pwed = math.create_problem("周三录的题", subject="高等数学")
-            checks.append(("周三录题（+3 个工作日跨周末）→ 首次复习 2026-10-26",
+            checks.append(("周三录题（+3 天跨周末），保留已公布批次顺序",
                            pwed.get("next_review") == "2026-10-26", str(pwed.get("next_review"))))
 
             # 关键回归：同一天「+2 个工作日」和「+3 个工作日」不能落在同一天

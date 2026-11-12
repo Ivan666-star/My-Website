@@ -9,6 +9,7 @@ const state = {
   bundle: null,
   meta: null,
   auth: {},            // 当前账号 / 运行模式（未启用账号体系时是空对象）
+  englishEnabled: false,
   revealed: false,
   readStart: Date.now(),
   elapsed: 0,
@@ -192,6 +193,15 @@ async function boot() {
     state.meta = data.meta;
     state.bundle = data.bundle;
     state.auth = data.auth || {};
+    state.englishEnabled = !!data.meta.english_enabled;
+    document.body.classList.toggle("english-paused", !state.englishEnabled);
+    if (!state.englishEnabled) {
+      renderAccountChip();
+      setPendingBadge(data.auth && data.auth.pending_count);
+      refreshMathBadge();
+      route();
+      return;
+    }
     renderMeta(data);
     if (data.bundle) renderBundle(data.bundle);
     else showEmpty(data.meta);
@@ -205,7 +215,7 @@ async function boot() {
   if (window.Notes) window.Notes.init();
   /* 后台可能还有一次没跑完的生成（用户点了之后刷新/换设备回来了）——
      接着把进度显示出来，别让他以为白点了。 */
-  resumePendingJob();
+  if (state.englishEnabled) resumePendingJob();
 }
 
 /* ------------------------------------------------------------
@@ -2113,9 +2123,9 @@ $("#btnSettings").addEventListener("click", async () => {
       <p class="small" style="line-height:1.9">
         AI 模型：<b>${s.ai_ready ? esc(s.model) : "未配置"}</b><br>
         服务地址：${esc(s.base_url)}<br>
-        当前阶段：${esc(s.stage)}<br>
+        ${s.english_enabled ? `当前阶段：${esc(s.stage)}<br>
         明日难度基准：${"★".repeat(s.next_difficulty)}<br>
-        自动生成时间：每天 ${s.daily_hour}:00 之后<br>
+        自动生成时间：每天 ${s.daily_hour}:00 之后<br>` : "英语已暂停 · 每日更新已关闭<br>当前专注数学与信号与系统错题本<br>周末休息，自主刷题随时可用<br>"}
         ${s.scheduler && s.scheduler.last_error ? `<span style="color:var(--warn)">最近一次自动生成失败：${esc(s.scheduler.last_error)}</span>` : ""}
       </p>
       <div class="w-group-title">考研初试日期</div>
@@ -2128,6 +2138,7 @@ $("#btnSettings").addEventListener("click", async () => {
                value="${esc(s.exam_date || "")}" style="max-width:190px">
         <button class="btn small" id="btnSaveExamDate">保存</button>
       </div>
+      <div ${s.english_enabled ? "" : "hidden"}>
       <div class="w-group-title">学习阶段</div>
       <div class="im-actions">
         <button class="btn small" data-stage="基础期">基础期</button>
@@ -2139,6 +2150,7 @@ $("#btnSettings").addEventListener("click", async () => {
         收藏的素材会自动归类到「作文素材库 / 阅读积累库」，并标注该用在作文的哪一段（开头 / 过渡 / 主体 / 结尾）以及它属于什么文体（议论文 / 说明文 / 应用文 / 描写文 / 记叙文）。
       </p>
       <button class="btn small" id="btnFavList">打开素材库</button>
+      </div>
       <div class="w-group-title">模型与密钥</div>
       <p class="muted small" style="line-height:1.8">
         模型、接口地址、API Key 都写在项目根目录的 <b>.env</b> 文件里，改完重启服务即可生效。
@@ -2490,6 +2502,7 @@ function pageLoadContext(view) {
 }
 function parseView() {
   const h = location.hash.replace(/^#/, "");
+  if (!state.englishEnabled && EN_TASK_VIEWS.has(h)) return "subjects";
   if (h === "today") return "today";
   if (h === "sig") return "math";
   /* ⚠️ 不带 hash 时落在**科目选择页** —— 用户 2026-10-07 明确要求：
@@ -2672,12 +2685,12 @@ const SUBJECTS = [
   },
   {
     key: "math", icon: "🧮", name: "数学", tag: "错题本",
-    desc: "拍照录题 · AI 归类解析 · 3/7/14/30 天复习",
+    desc: "拍照录题 · 最终答案 · 周末休息，工作日按批复习",
     stat: "",
   },
   {
     key: "sig", icon: "📡", name: "信号与系统", tag: "错题本 · 专业课",
-    desc: "拍照录题 · AI 归类解析 · 3/7/14/30 天复习",
+    desc: "拍照录题 · 最终答案 · 周末休息，工作日按批复习",
     stat: "",
   },
 ];
@@ -2758,7 +2771,7 @@ function renderSubjects() {
   $("#pageBody-subjects").innerHTML = `
     ${examCountdownHtml()}
     <div class="subject-grid">
-      ${SUBJECTS.map(s => `
+      ${SUBJECTS.filter(s => state.englishEnabled || s.key !== "en").map(s => `
         <button class="subject-card card" data-subject="${s.key}">
           <span class="subject-icon">${s.icon}</span>
           <span class="subject-main">
@@ -2816,6 +2829,8 @@ const MATH = {
   editHistory: [],
   editOriginal: "",
   extractRunning: false,
+  saveRunning: false,
+  plan: [],
   drill: null,           // 正在刷的那道（2026-10-12 起：带最终答案，不带解析）
   revealed: false,
 };
@@ -3096,15 +3111,17 @@ async function loadMath() {
     Object.entries(MATH.f).forEach(([k, v]) => { if (v) qs.set(k, v); });
     qs.set("with_analysis", "1");
     qs.set("module", module);        // ⚠️ 模块隔离：另一边的科目不许漏进来
-    const [meta, list, due] = await Promise.all([
+    const [meta, list, due, plan] = await Promise.all([
       api("/api/math/meta?module=" + encodeURIComponent(module)),
       api("/api/math/problems?" + qs.toString()),
       api("/api/math/review/due?module=" + encodeURIComponent(module)),
+      api("/api/math/review/plan?module=" + encodeURIComponent(module)),
     ]);
     if (request !== MATH.loadSeq || currentView !== "math" || MATH.module !== module) return;
     MATH.meta = meta;
     MATH.items = list.items || [];
     MATH.due = due.items || [];
+    MATH.plan = plan.days || [];
     /* 周末休息：周六/周日不计复习任务，但「还没复习的」照样列出来（2026-10-30） */
     MATH.rest = !!(due.rest || (meta.stats && meta.stats.rest));
     const dueShown = MATH.rest ? 0 : MATH.due.length;  // 周末不算任务，角标不亮
@@ -3116,6 +3133,24 @@ async function loadMath() {
       box.innerHTML = `<p class="muted small">${esc(e.message)}</p>`;
     }
   }
+}
+
+function mathPlanGridHtml() {
+  return MATH.plan.map(day => `<div class="review-plan-day${day.rest ? " is-rest" : ""}">
+        <b>${esc(day.date.slice(5))}</b><span>${["周日","周一","周二","周三","周四","周五","周六"][new Date(day.date + "T00:00:00").getDay()]}</span>
+        <span>${day.rest ? "休息 · 可自主刷题" : `${day.items.length} 道`}</span>
+      </div>`).join("");
+}
+
+async function refreshMathPlan() {
+  const module = MATH.module;
+  try {
+    const plan = await api("/api/math/review/plan?module=" + encodeURIComponent(module));
+    if (module !== MATH.module || currentView !== "math") return;
+    MATH.plan = plan.days || [];
+    const grid = document.querySelector(".review-plan-grid");
+    if (grid) grid.innerHTML = mathPlanGridHtml();
+  } catch { toast("复习已记录，计划暂未刷新，可稍后重新打开题库", true); }
 }
 
 function renderMath() {
@@ -3148,6 +3183,10 @@ function renderMath() {
     </div>` : ""}
     <div id="mathDraftWrap"></div>
     <div id="mathDrillWrap"></div>
+    <details class="card review-plan"><summary>未来两周复习计划 · 周末休息</summary>
+      <p class="muted small">原计划按 3 / 7 / 14 / 30 / 60 天生成，再按日期批次安排到工作日：周六→周一、周日→周二，后续批次继续顺延。提前完成的题会安排下一次复习。</p>
+      <div class="review-plan-grid">${mathPlanGridHtml()}</div>
+    </details>
     <div class="field-row math-filter">
       <label class="field"><span>科目</span>
         <select id="mfSubject">${mathSubjectOpts(MATH.f.subject)}</select></label>
@@ -3254,7 +3293,7 @@ function mathCard(it) {
 const MATH_EXTRACT_PARALLEL = 2;   // 同时问模型几张；太高会被限流，太低又慢
 
 function draftReady(d) {
-  return !!(d.stem || "").trim() && d.status !== "saving" && d.status !== "saved";
+  return !!(d.stem || "").trim() && !["saving", "saved", "extracting", "new"].includes(d.status);
 }
 
 function mathNewDraft(image) {
@@ -3262,6 +3301,9 @@ function mathNewDraft(image) {
   return {
     key: "d" + MATH.draftSeq,
     image: image || "",
+    module: MATH.module,
+    extractId: "",
+    saveId: crypto.randomUUID().replaceAll("-", ""),
     marker: null,
     stem: "",
     subject: MATH.f.subject || "",
@@ -3773,10 +3815,7 @@ async function mathExtractWorker() {
     d.status = "extracting";
     paintDraftCard(d.key);
     try {
-      const r = await api("/api/math/extract", {
-        method: "POST",
-        body: JSON.stringify({ image: d.image, subject: d.subject || "", topic: d.topic || "", marker: d.marker }),
-      });
+      const r = await mathExtractImage(d);
       d.stem = r.stem || "";
       d.answer = r.answer || "";  // 保存提取的答案
       // AI 归类：用户没手动动过分类时才覆盖，别把人改的又冲掉
@@ -3786,7 +3825,7 @@ async function mathExtractWorker() {
         d.kind = r.kind || "normal";
         /* 模块隔离：在信号页录的题，AI 看走眼认成数学也不收 ——
            强制回到信号科目；它配的专题若不在信号树里就丢掉，别带进数学的树 */
-        if (MATH.module === "sig") {
+        if (d.module === "sig") {
           const okTopics = ((MATH.meta || {}).topics || {})["信号与系统"] || [];
           if (d.subject !== "信号与系统") { d.subject = "信号与系统"; d.topic = ""; }
           else if (d.topic && !okTopics.includes(d.topic)) d.topic = "";
@@ -3797,12 +3836,7 @@ async function mathExtractWorker() {
       d.aiClassified = true;
       d.status = "ready";
       d.error = "";
-      /* ⭐ 题干已经拿到手，原图就没用了 —— 立刻释放。
-         用户 2026-10-07 明确要求「识图了以后就不用再保留图片了，节省存储空间」：
-         这里清掉内存里的 base64（缩略图跟着消失），保存时也不再上传。
-         ⚠️ 只在成功时清：识别失败要留着图给「重新识别」用。 */
-      d.image = "";
-      d.imageDropped = true;
+      // 图片仅临时留在本页，供核对和重新识别；保存成功才释放，不写入服务器。
     } catch (e) {
       d.status = "error";
       d.error = e.message;
@@ -3811,13 +3845,34 @@ async function mathExtractWorker() {
   }
 }
 
+async function mathExtractImage(d) {
+  if (!d.extractId) d.extractId = crypto.randomUUID().replaceAll("-", "");
+  let job = await api("/api/math/extract/jobs", {
+    method: "POST", body: JSON.stringify({ request_id: d.extractId, image: d.image,
+      subject: d.subject || (d.module === "sig" ? "信号与系统" : ""), topic: d.topic || "", marker: d.marker }),
+  });
+  const started = Date.now();
+  while (job.running) {
+    if (Date.now() - started > 15 * 60 * 1000) throw new Error("识别仍在后台进行，可点重新识别查询同一任务的结果");
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    try { job = await api("/api/math/extract/jobs/" + d.extractId); }
+    catch (error) {
+      if (error.message.includes("已过期")) d.extractId = "";
+      throw error;
+    }
+  }
+  d.extractId = "";
+  if (!job.ok) throw new Error(job.error || "识别失败，请重新识别或手动填写题干");
+  return job.result;
+}
+
 function draftStatusHtml(d) {
   const map = {
     manual:     ["", "手动录入"],
     new:        ["", "待识别"],
     extracting: ["busy", "识别中…"],
     ready:      ["ok", "已识别"],
-    error:      ["err", "识别失败"],
+    error:      ["err", "需要重试"],
     saving:     ["busy", "保存中…"],
     saved:      ["ok", "已保存"],
   };
@@ -3866,8 +3921,8 @@ function draftTopHtml(d) {
           <div class="draft-head">${draftStatusHtml(d)}
             ${d.model ? `<span class="muted tiny">${esc(d.model)}</span>` : ""}</div>
           <div class="draft-tools">
-            ${d.image ? `<button class="btn tiny" data-d-re="1">重新识别</button>` : ""}
-            <button class="btn tiny warnish" data-d-del="1">移除</button>
+            ${d.image ? `<button class="btn tiny" data-d-re="1" ${["extracting", "saving"].includes(d.status) ? "disabled" : ""}>重新识别</button>` : ""}
+            <button class="btn tiny warnish" data-d-del="1" ${d.status === "saving" ? "disabled" : ""}>移除</button>
           </div>
         </div>`;
 }
@@ -3889,7 +3944,7 @@ function draftCard(d) {
     <div class="card math-draft-item${d.status === "error" ? " is-error" : ""}" data-draft="${d.key}">
       <div class="draft-top">${draftTopHtml(d)}</div>
       ${droppedNoteHtml(d)}
-      ${err}${unc}
+      <div class="draft-messages">${err}${unc}</div>
       ${draftPreviewHtml(d)}
       <!-- 源码框默认折叠：用户的原话是「你给我的这是代码」。
            上面的「题干预览」才是给他看的；源码只在需要改的时候才展开。 -->
@@ -3932,14 +3987,14 @@ function renderDraft() {
         <button class="btn" id="mathPick">🖼️ 从相册选（可多选）</button>
         <p class="muted small" style="margin:8px 0 0">
           也可以 Ctrl+V 一次粘贴多张截图。识别后由 AI 归类，你可以改；
-          原图只用来认字，认完就释放，不占你的存储。</p>
+          原图临时留在本页供核对，保存成功后释放，不存入服务器。缺答案也能先保存。</p>
       </div>
       <div class="math-draft-actions">
-        <button class="btn primary" id="mathSaveAll" ${n && !busy ? "" : "disabled"}>
+        <button class="btn primary" id="mathSaveAll" ${n && !busy && !MATH.saveRunning ? "" : "disabled"}>
           ${busy ? "识别中…" : (n ? `全部保存（${n} 道）` : "全部保存")}</button>
         <button class="btn ghost" id="mathCancel">关闭</button>
       </div>
-      <p class="muted small" style="margin-top:8px">保存后会按 3 → 7 → 14 → 30 天的节奏提醒你重做。</p>
+      <p class="muted small" style="margin-top:8px">保存后按 3 → 7 → 14 → 30 → 60 天生成复习计划，周末批次与后续批次依次顺延到工作日。</p>
     </div>
     ${MATH.drafts.length ? `<div class="math-draft-list">${MATH.drafts.map(draftCard).join("")}</div>` : ""}`;
 }
@@ -3954,6 +4009,10 @@ function paintDraftCard(key) {
   const note = el.querySelector(".math-draft-note");
   if (note && document.activeElement !== note) note.value = d.source_note || "";
   el.classList.toggle("is-error", d.status === "error");
+  const messages = el.querySelector(".draft-messages");
+  if (messages) messages.innerHTML =
+    (d.error ? `<div class="math-warn">${esc(d.error)}</div>` : "") +
+    ((d.uncertain || []).length ? `<div class="math-warn">请核对：${d.uncertain.map(esc).join("；")}</div>` : "");
   /* 整块重绘顶部：识别成功后缩略图要消失，只换角标是去不掉的。
      用签名挡住重复渲染 —— 打字时每个字符都会走到这里，不必重建 DOM。 */
   const top = el.querySelector(".draft-top");
@@ -3982,31 +4041,34 @@ function mathSyncSaveBtn() {
   if (!btn) return;
   const n = MATH.drafts.filter(draftReady).length;
   const busy = MATH.drafts.some(d => d.status === "extracting");
-  btn.disabled = !n || busy;
+  btn.disabled = !n || busy || MATH.saveRunning;
   btn.textContent = busy ? "识别中…" : (n ? `全部保存（${n} 道）` : "全部保存");
 }
 
 async function mathSaveAll() {
+  if (MATH.saveRunning) return;
   const list = MATH.drafts.filter(draftReady);
   if (!list.length) { toast("还没有可保存的题干", true); return; }
+  MATH.saveRunning = true;
+  mathSyncSaveBtn();
   let ok = 0, fail = 0;
   for (const d of list) {
-    d.status = "saving";
+    d.status = "saving"; d.error = "";
     paintDraftCard(d.key);
     try {
       await api("/api/math/problems", {
         method: "POST",
         body: JSON.stringify({
-          stem: d.stem, subject: d.subject, topic: d.topic, kind: d.kind,
+          request_id: d.saveId, stem: d.stem, subject: d.subject, topic: d.topic, kind: d.kind,
           /* ⚠️ 故意**不上传原图**：识图只为拿题干，图片用户不要留（省存储）。
              服务端 create_problem 只在收到 image 时才落盘，不发就不会存。 */
           source_note: d.source_note || "",
           answer: d.answer || "",  // 传递识图时提取的答案
         }),
       });
-      d.status = "saved"; ok += 1;
+      d.status = "saved"; d.image = ""; d.imageDropped = true; ok += 1;
     } catch (e) {
-      d.status = "error"; d.error = e.message; fail += 1;
+      d.status = "error"; d.error = "保存失败：" + e.message + "。题干已保留，可再次点全部保存。"; fail += 1;
     }
     paintDraftCard(d.key);
   }
@@ -4014,6 +4076,7 @@ async function mathSaveAll() {
   MATH.drafts = MATH.drafts.filter(d => d.status !== "saved");
   if (!MATH.drafts.length) MATH.draftOpen = false;
   MATH.meta = null;                 // 统计要重算
+  MATH.saveRunning = false;
   await loadMath();
   toast(`已存入错题库 ${ok} 道${fail ? `，${fail} 道失败` : ""}`, !!fail);
 }
@@ -4170,6 +4233,7 @@ document.addEventListener("click", async e => {
     return;
   }
   if (e.target.closest("#mathCancel")) {
+    if (MATH.saveRunning) return;
     MATH.drafts = []; MATH.draftOpen = false; renderDraft(); return;
   }
   if (e.target.closest("#mathPick")) { $("#mathPhoto")?.click(); return; }
@@ -4189,6 +4253,7 @@ document.addEventListener("click", async e => {
         return;
       }
       if (e.target.closest("[data-d-re]")) {
+        if (["extracting", "saving"].includes(d.status)) return;
         d.status = "new"; d.error = ""; d.touched = false;
         paintDraftCard(d.key);
         mathRunExtract();
@@ -4215,7 +4280,7 @@ document.addEventListener("click", async e => {
         method: "POST",
         body: JSON.stringify({ result: act }),
       });
-      toast(act === "right" ? "✅ 会做了，下次间隔拉长" : "没关系，明天再来一次");
+      toast(act === "right" ? "✅ 会做了，下次间隔拉长" : "没关系，已安排下次工作日复习");
       // 刷新列表
       MATH.meta = null;
       await loadMath();
@@ -4349,7 +4414,8 @@ document.addEventListener("click", async e => {
       window.scrollTo({ top: Math.min(keepY, Math.max(0, document.body.scrollHeight - window.innerHeight)) });
       /* 计数是本地推的：不为了两个数字去重拉整页 */
       bumpMathDueCount();
-      toast({ right: "做对了，下次间隔拉长", wrong: "没关系，明天再来一次", skip: "已推到明天",
+      refreshMathPlan();
+      toast({ right: "做对了，下次间隔拉长", wrong: "没关系，已安排下次工作日复习", skip: "已顺延到后续工作日",
               drop: "已移出复习周期" }[act] || "已记录");
     } catch (err) { toast(err.message, true); dueResult.disabled = false; }
     return;
@@ -4365,7 +4431,7 @@ document.addEventListener("click", async e => {
       await api(`/api/math/problems/${MATH.drill.id}/result`, {
         method: "POST", body: JSON.stringify({ result: act }),
       });
-      toast({ right: "做对了，下次间隔拉长", wrong: "没关系，明天再来一次", skip: "已推到明天",
+      toast({ right: "做对了，下次间隔拉长", wrong: "没关系，已安排下次工作日复习", skip: "已顺延到后续工作日",
               drop: "已移出复习周期" }[act] || "已记录");
       MATH.drill = null; MATH.revealed = false;
       MATH.dueAnswers.delete(drillId);
@@ -4374,6 +4440,7 @@ document.addEventListener("click", async e => {
       /* 同样不整页重载：刷题面板就地收掉，你原来的位置（错题列表那一段）保持不动 */
       renderDrill();
       bumpMathDueCount();
+      refreshMathPlan();
     } catch (err) { toast(err.message, true); res.disabled = false; }
     return;
   }

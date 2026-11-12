@@ -88,8 +88,8 @@ with db.as_user(UID_A):
     check("科目落库正确", p1["subject"] == SIG, f"({p1['subject']})")
     check("专题落库正确", p1["topic"] == "拉普拉斯变换与s域分析")
     check("类型标记为真题", p1["kind_label"] == "考研真题错题", f"({p1['kind_label']})")
-    check("首刷 = 3 个工作日后",
-          p1["next_review"] == db.review_day(3),
+    check("首刷 = 3 天后顺延到工作日",
+          p1["next_review"] == (lambda d: (d + timedelta(days=7-d.weekday()) if d.weekday() >= 5 else d).isoformat())(date.today() + timedelta(days=3)),
           f"({p1['next_review']})")
 
     p2 = M.create_problem(
@@ -134,8 +134,8 @@ with db.as_user(UID_A):
     r1 = M.apply_result(p1["id"], "right")   # 数学侧动作名：right/wrong/skip/drop/readd
     check("做对推进一档", r1["review_count"] == 1, f"({r1['review_count']})")
     # ⚠️ 数学的阶梯是 3/7/14/30/60（和英语的 1/2/4…不同），且按**工作日**数算
-    check("下次复习 = 3 个工作日后（数学阶梯第一档）",
-          r1["next_review"] == db.review_day(3),
+    check("下次复习 = 3 天后顺延到工作日（数学阶梯第一档）",
+          r1["next_review"] == (lambda d: (d + timedelta(days=7-d.weekday()) if d.weekday() >= 5 else d).isoformat())(date.today() + timedelta(days=3)),
           f"({r1['next_review']})")
     r2 = M.apply_result(p1["id"], "wrong")
     check("做错归零、次日（工作日）再见", r2["review_count"] == 0

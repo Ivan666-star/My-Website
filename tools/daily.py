@@ -21,6 +21,9 @@ from app.config import settings  # noqa: E402
 
 
 def cmd_generate(args) -> int:
+    if not settings.english_enabled:
+        print("英语已暂停，每日内容不会生成。")
+        return 0
     db.init_db()
     seed.ensure_seed()
     if not settings.ai_ready:

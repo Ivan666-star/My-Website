@@ -63,7 +63,7 @@ def _run(uid: int, kind: str, work: Callable[[], Any]) -> None:
         with _lock:
             _jobs[key].update(ok=True, error="", result=result)
     except Exception as exc:  # noqa: BLE001 —— 任何异常都要落进状态里给前端看
-        detail = str(exc) or exc.__class__.__name__
+        detail = str(getattr(exc, "detail", "") or str(exc) or exc.__class__.__name__)
         print(f"[jobs] {kind} 失败：{detail}")
         traceback.print_exc()
         with _lock:
@@ -76,14 +76,21 @@ def _run(uid: int, kind: str, work: Callable[[], Any]) -> None:
             state["elapsed"] = int((datetime.now() - state["_started_dt"]).total_seconds())
 
 
-def start(kind: str, work: Callable[[], Any], *, label: str = "") -> dict:
+def start(kind: str, work: Callable[[], Any], *, label: str = "", ephemeral: bool = False) -> dict:
     """开始一个后台任务。已在跑就原样返回当前状态（不会重复启动）。"""
     uid = db.require_user()
     key = (uid, kind)
     with _lock:
+        # 图片任务有独立编号；完成一小时后释放结果，防止图片批量导入累积内存。
+        now = datetime.now()
+        for old_key, old in list(_jobs.items()):
+            if old.get("ephemeral") and not old.get("running") and (now - old["_started_dt"]).total_seconds() > 3600:
+                _jobs.pop(old_key)
         cur = _jobs.get(key)
-        if cur and cur.get("running"):
+        if cur and (cur.get("running") or ephemeral):
             return _snapshot(key)      # 已在跑：不重复启动，也不重复烧模型额度
+        if ephemeral and sum(1 for k, v in _jobs.items() if k[0] == uid and v.get("ephemeral") and v.get("running")) >= 4:
+            raise ValueError("正在识别的图片较多，请等待当前任务完成后重试")
         _jobs[key] = {
             "kind": kind,
             "label": label,
@@ -96,6 +103,7 @@ def start(kind: str, work: Callable[[], Any], *, label: str = "") -> dict:
             "elapsed": 0,
             "_started_dt": datetime.now(),
             "user_id": uid,
+            "ephemeral": ephemeral,
         }
     threading.Thread(target=_run, args=(uid, kind, work), name=f"job-{kind}-{uid}", daemon=True).start()
     return status(kind)

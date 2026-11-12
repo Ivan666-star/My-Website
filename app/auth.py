@@ -372,7 +372,7 @@ def _shell(title: str, sub: str, inner: str) -> str:
   <form class="card" method="post">
     <img src="/static/icons/mark.png" alt="" style="height:34px;width:auto;display:block;margin:0 auto 12px">
     <h1>Prism</h1>
-    <p class="sub">AI 考研英语一训练 · {sub}</p>
+    <p class="sub">考研错题本 · {sub}</p>
     {inner}
   </form>
 </body>

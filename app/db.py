@@ -386,6 +386,8 @@ SCHEMA = (
     "    analyzed_at    TEXT DEFAULT '',                          -- 非空 = 解析已就绪\n"
     "    review_count   INTEGER DEFAULT 0,                        -- 已连续做对次数（推进阶梯用）\n"
     "    next_review    TEXT DEFAULT '',                          -- YYYY-MM-DD；空 = 不在复习队列\n"
+    "    planned_review TEXT DEFAULT '',                          -- 顺延前的原计划日期\n"
+    "    import_key     TEXT,                                     -- 防止保存重试重复录题\n"
     "    last_result    TEXT DEFAULT '',\n"
     "    last_review_at TEXT DEFAULT '',\n"
     "    created_at     TEXT DEFAULT (datetime('now','localtime')),\n"
@@ -541,6 +543,11 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 以前是图省事把「答案：xxx」塞进 solution 列，和推荐解法混在一起 ——
     # 这次把老数据搬出来，让答案有自己干净的位置。
     math_cols = {r["name"] for r in conn.execute("PRAGMA table_info(math_problems)")}
+    if "planned_review" not in math_cols:
+        conn.execute("ALTER TABLE math_problems ADD COLUMN planned_review TEXT DEFAULT ''")
+        conn.execute("UPDATE math_problems SET planned_review=COALESCE(next_review,'')")
+    _add_columns(conn, "math_problems", {"import_key": "TEXT"})
+    conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_math_import ON math_problems(user_id,import_key)")
     if "answer" not in math_cols:
         conn.execute("ALTER TABLE math_problems ADD COLUMN answer TEXT DEFAULT ''")
         # 把历史里 solution 开头是「答案：」的那一行搬到新列，并把 solution 里这一段去掉
@@ -620,7 +627,7 @@ def _migrate(conn: sqlite3.Connection) -> None:
     # 而不是全压到周一（那正是用户 2026-10-30 说的「叠加」）。
     # 这是一次性的历史清理；新排的日期由 review_day() 保证不落在周末。
     # 幂等：周一/周二都不是周末，再跑一次不会命中任何行。
-    for _t in ("favorites", "reading_notes", "math_problems"):
+    for _t in ("favorites", "reading_notes"):
         exists = conn.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (_t,)
         ).fetchone()
@@ -631,6 +638,9 @@ def _migrate(conn: sqlite3.Connection) -> None:
             "WHERE next_review IS NOT NULL AND next_review<>'' "
             "AND strftime('%w', next_review) IN ('0','6')"      # 0 = 周日，6 = 周六
         )
+    # 错题按原计划批次整体顺延，不能只把周末单独移动到周一/周二。
+    from .review_plan import arrange
+    arrange(conn)
 
 
 _CENTRAL_TABLES = {"users", "sessions", "profile"}

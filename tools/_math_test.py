@@ -53,8 +53,11 @@ def check(label, cond, extra=""):
 
 
 def plus(days: int) -> str:
-    """复习落点 = 往后 days 个**工作日**（见 db.review_day：周末休息、不占间隔天数）。"""
-    return db.review_day(days)
+    """单批次基线：先加自然日，再跳过周末；批次碰撞另由 test_focus_workflow 覆盖。"""
+    d = date.today() + timedelta(days=days)
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d.isoformat()
 
 
 def fetch(pid: int):

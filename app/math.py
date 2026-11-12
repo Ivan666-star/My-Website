@@ -18,13 +18,14 @@ import binascii
 import json
 import re
 import uuid
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import FileResponse
 
-from . import db
+from . import db, jobs
+from .review_plan import arrange
 from .ai import prompts  # noqa: F401  （保留导入位，提示词写在本文件里）
 from .ai.provider import AIError, get_provider, parse_json
 from .config import settings
@@ -137,9 +138,7 @@ def normalize_math_delims(text: str) -> str:
 # ------------------------------------------------------------
 # ⚠️ MASTERED_AT 一律 = 阶梯长度，不要另写一个数：
 #    第 n 次做对用的是 INTERVALS[n-1]，硬编码 4 会和「已推到 30 天」对不上。
-# ⚠️ 落点一律走 db.review_day()：间隔按**工作日**数（用户 2026-10-19「周末休息」、
-#    2026-10-30「周末的任务直接往后推，别叠到周一」），周六/周日当天的到期队列默认空
-#    （db.is_rest_day），但周末照样可以把还没复习的题翻出来练。
+# 间隔先生成原计划日期，再按日期批次顺延；周末不布置复习，随时可以自主刷题。
 # ============================================================
 REVIEW_INTERVALS = [3, 7, 14, 30, 60]
 MASTERED_AT = len(REVIEW_INTERVALS)
@@ -262,6 +261,7 @@ def create_problem(
     source_note: str = "",
     image_data: str = "",
     answer: str = "",
+    request_id: str = "",
 ) -> dict:
     uid = db.require_user()
     stem = normalize_math_delims((stem or "").strip())
@@ -276,15 +276,22 @@ def create_problem(
     # ⚠️ 以前是拼成「答案：xxx」塞进 solution，和推荐解法混在一列里 —— 用户
     # 2026-10-12 的口径是「只要最终答案，不要解析」，所以答案有自己的位置了。
     answer = normalize_math_delims((answer or "").strip())
-    # 首次复习 = 添加后 3 个工作日（计划书第十四节的「第一次：3天后」）；
-    # 周末不占间隔天数（2026-10-30 口径：周末的任务往后推，不叠到周一）
-    first = db.review_day(REVIEW_INTERVALS[0])
-    pid = db.execute(
-        "INSERT INTO math_problems (user_id, subject, kind, topic, stem, answer, image_path, "
-        "source_note, review_count, next_review, created_at, updated_at) "
-        "VALUES (?,?,?,?,?,?,?,?,0,?,datetime('now','localtime'),datetime('now','localtime'))",
-        (uid, subject, kind, topic, stem, answer, image_path, source_note, first),
-    )
+    # 先生成自然日期，再把周末批次与后续批次依次顺延到工作日。
+    first = (date.today() + timedelta(days=REVIEW_INTERVALS[0])).isoformat()
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if request_id:
+            existing = conn.execute("SELECT * FROM math_problems WHERE user_id=? AND import_key=?", (uid, request_id)).fetchone()
+            if existing:
+                return _row(dict(existing))
+        pid = conn.execute(
+            "INSERT INTO math_problems (user_id, subject, kind, topic, stem, answer, image_path, "
+            "source_note, review_count, next_review, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?,?,?,0,?,datetime('now','localtime'),datetime('now','localtime'))",
+            (uid, subject, kind, topic, stem, answer, image_path, source_note, first),
+        ).lastrowid
+        conn.execute("UPDATE math_problems SET planned_review=?,import_key=? WHERE id=? AND user_id=?", (first, request_id or None, pid, uid))
+        arrange(conn, uid)
     db.log_event("math_add", pid, {"subject": subject, "topic": topic, "kind": kind})
     return _row(_get(pid))  # type: ignore[return-value]
 
@@ -326,10 +333,11 @@ def update_problem(pid: int, payload: dict) -> dict | None:
         return _row(row)
     sets.append("updated_at=datetime('now','localtime')")
     uid = db.require_user()
-    db.execute(
-        f"UPDATE math_problems SET {','.join(sets)} WHERE id=? AND user_id=?",
-        (*args, int(pid), uid),
-    )
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(f"UPDATE math_problems SET {','.join(sets)} WHERE id=? AND user_id=?", (*args, int(pid), uid))
+        if "subject" in payload:
+            arrange(conn, uid)
     return _row(_get(pid))
 
 
@@ -510,30 +518,33 @@ def apply_result(pid: int, result: str) -> dict | None:
     rc = row.get("review_count") or 0
 
     if result == "wrong":
-        rc, nxt = 0, db.review_day(1, base=today)              # 做错 → 回队列，缩短间隔
+        rc, nxt = 0, (today + timedelta(days=1)).isoformat()
     elif result == "right":
         rc = rc + 1
-        nxt = db.review_day(REVIEW_INTERVALS[min(rc - 1, len(REVIEW_INTERVALS) - 1)], base=today)
+        nxt = (today + timedelta(days=REVIEW_INTERVALS[min(rc - 1, len(REVIEW_INTERVALS) - 1)])).isoformat()
     elif result == "skip":
-        nxt = db.review_day(1, base=today)                     # 进度不变
+        nxt = (today + timedelta(days=1)).isoformat()
     elif result == "drop":
         nxt = ""                                               # 停止提醒；错题记录保留
     else:  # readd
-        rc, nxt = 0, db.review_day(REVIEW_INTERVALS[0], base=today)
+        rc, nxt = 0, (today + timedelta(days=REVIEW_INTERVALS[0])).isoformat()
 
     uid = db.require_user()
-    db.execute(
-        "UPDATE math_problems SET review_count=?, next_review=?, last_result=?, "
-        "last_review_at=datetime('now','localtime'), updated_at=datetime('now','localtime') "
-        "WHERE id=? AND user_id=?",
-        (rc, nxt, result, int(pid), uid),
-    )
-    db.execute(
-        "INSERT INTO math_review_log (user_id, problem_id, result, review_count_after) "
-        "VALUES (?,?,?,?)",
-        (uid, int(pid), result, rc),
-    )
-    db.log_event(f"math_{result}", int(pid), {"count": rc, "next": nxt})
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        conn.execute(
+            "UPDATE math_problems SET review_count=?, next_review=?, planned_review=?, last_result=?, "
+            "last_review_at=datetime('now','localtime'), updated_at=datetime('now','localtime') "
+            "WHERE id=? AND user_id=?",
+            (rc, nxt, nxt, result, int(pid), uid),
+        )
+        arrange(conn, uid)
+        conn.execute(
+            "INSERT INTO math_review_log (user_id, problem_id, result, review_count_after) "
+            "VALUES (?,?,?,?)",
+            (uid, int(pid), result, rc),
+        )
+    db.log_event(f"math_{result}", int(pid), {"count": rc, "next": _get(pid)["next_review"]})
     return _row(_get(pid))
 
 
@@ -609,14 +620,11 @@ EXTRACT_SYSTEM = """你是考研理科错题库（数学 / 信号与系统）的
 6. 保留题号（如「7.」「(3)」），但不要额外加「题目：」这类前缀。
 7. 不要输出任何解释、不要给思路、不要在**题干**里夹带解答过程。
 
-【第二件：给出最终答案】
-用户 2026-10-12 的要求：每道题只留**最终答案**，不要解析、不要步骤（他说解析太费时间）。
-- 照片里如果已经印着答案（通常在题目下方或旁边，标注「答案：」「解：」「Answer:」等），照抄它的**最终答案**。
-- 照片里**没有**答案时（这是最常见的：只拍了一道题），你要**自己把这道题解出来**，然后只给最终答案。
-- 无论哪种情况，都**只要最终答案**：不要步骤、不要推导、不要解释、不要思路、不要「由…可得…」这类话。
-- 选择题给选项字母（如「A」）；计算题给最终数值或表达式；证明题给结论。
-- 答案里的公式也用 LaTeX（$...$）。
-- 只有题目残缺、看不清导致确实做不出来时，才给空字符串。**不要因为「照片里没印答案」就给空**。
+【第二件：已有答案】
+录题阶段只读图，不要解题。仅当图片印有明确属于目标题目的最终答案时抄入 answer。
+不要把手写草稿、打叉的答案、相邻题或下方其他题的解答当成正确答案。
+没有可靠的印刷答案就给空字符串；不能因为答案缺失而拒绝转录题干。
+题目保存后可单独求最终答案，解题失败不影响录入。
 
 【输出格式的硬要求】
 - 只输出一个 JSON 对象，前后不要任何说明文字。
@@ -902,6 +910,8 @@ def api_extract(payload: dict = Body(...)):
         raise HTTPException(400, "没有收到图片")
     if not _DATA_URL_RE.match(img):
         raise HTTPException(400, "图片格式不对（需要 data:image/...;base64,... 形式）")
+    if len(img) > 16 * 1024 * 1024 + 128:
+        raise HTTPException(413, "图片超过 12MB，请裁剪后重试")
     marker = payload.get("marker")
     if marker is not None:
         try:
@@ -922,6 +932,35 @@ def api_extract(payload: dict = Body(...)):
     return {"ok": True, **d}
 
 
+@router.post("/extract/jobs")
+def api_start_extract(payload: dict = Body(...)):
+    """立即确认收到图片；耗时识别由后台完成，避免公网长请求超时。"""
+    job_id = str(payload.get("request_id") or uuid.uuid4().hex)
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(400, "识别任务编号无效")
+    image = payload.get("image") or ""
+    if not isinstance(image, str) or not _DATA_URL_RE.match(image):
+        raise HTTPException(400, "没有收到有效图片，请重新选择照片")
+    if len(image) > 16 * 1024 * 1024 + 128:
+        raise HTTPException(413, "图片超过 12MB，请裁剪后重试")
+    try:
+        result = jobs.start("math-extract-" + job_id, lambda: api_extract(payload),
+                            label="识别题干", ephemeral=True)
+    except ValueError as exc:
+        raise HTTPException(429, str(exc)) from exc
+    return {"job_id": job_id, **result}
+
+
+@router.get("/extract/jobs/{job_id}")
+def api_extract_status(job_id: str):
+    if not re.fullmatch(r"[a-f0-9]{32}", job_id):
+        raise HTTPException(404, "识别任务不存在")
+    result = jobs.status("math-extract-" + job_id)
+    if not result["exists"]:
+        raise HTTPException(404, "识别任务已过期或服务已重启，请重新识别")
+    return {"job_id": job_id, **result}
+
+
 @router.post("/images/purge")
 def api_purge_images():
     """清掉本账号所有已存的原图（录题流程本身已经不留图了）。"""
@@ -940,6 +979,7 @@ def api_create(payload: dict = Body(...)):
             source_note=(payload.get("source_note") or "").strip(),
             image_data=(payload.get("image") or "").strip(),
             answer=(payload.get("answer") or "").strip(),      # 可以手填最终答案
+            request_id=str(payload.get("request_id") or "")[:64],
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -1019,6 +1059,24 @@ def api_random(subject: str = "", topic: str = "", kind: str = "", cycle: str = 
     if not row:
         return {"ok": True, "problem": None}
     return {"ok": True, "problem": row}
+
+
+@router.get("/review/plan")
+def api_review_plan(module: str = "math", days: int = Query(14, ge=1, le=60)):
+    if module not in MODULES:
+        raise HTTPException(400, "请选择数学或信号与系统")
+    w, args = _filters(module=module)
+    today = date.today()
+    end = (today + timedelta(days=days - 1)).isoformat()
+    rows = db.query(
+        f"SELECT id,stem,subject,planned_review,next_review FROM math_problems WHERE {w} "
+        "AND next_review>=? AND next_review<=? ORDER BY next_review,id",
+        (*args, today.isoformat(), end),
+    )
+    return {"days": [{"date": (today + timedelta(days=i)).isoformat(),
+                      "rest": db.is_rest_day(today + timedelta(days=i)),
+                      "items": [r for r in rows if r["next_review"] == (today + timedelta(days=i)).isoformat()]}
+                     for i in range(days)]}
 
 
 @router.get("/review/due")

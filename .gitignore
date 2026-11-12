@@ -17,6 +17,7 @@ venv/
 *.zip
 .pytest_cache/
 .playwright/
+.playwright-cli/
 test-results/
 
 # 编辑器与系统文件

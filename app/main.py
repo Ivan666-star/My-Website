@@ -384,6 +384,11 @@ def api_admin_logout_all(uid: int, request: Request):
 # ============================================================
 def _bootstrap_payload(request: Request, d: str | None = None) -> dict:
     d = d or db.today_str()
+    if not settings.english_enabled:
+        return {"date": d, "today": db.today_str(), "bundle": None,
+                "auth": _auth_payload(request), "history": [],
+                "meta": {"english_enabled": False, "ai_ready": settings.ai_ready,
+                         "review_due": 0, "scheduler": scheduler.state()}}
     art = db.get_article_by_date(d)
     bundle = story_bundle(art["id"]) if art else None
     return {
@@ -392,6 +397,7 @@ def _bootstrap_payload(request: Request, d: str | None = None) -> dict:
         "bundle": bundle,
         "auth": _auth_payload(request),
         "meta": {
+            "english_enabled": settings.english_enabled,
             "streak": db.streak_days(),
             "ai_ready": settings.ai_ready,
             "model": settings.ai_model if settings.ai_ready else "",
@@ -427,6 +433,8 @@ def api_generate(payload: dict = Body(default={})):
     原因见 `app/jobs.py` 顶部注释 —— Cloudflare 对源站响应有 125 秒硬上限，
     让手机用户干等这个长请求必然吃 524。
     """
+    if not settings.english_enabled:
+        raise HTTPException(409, "英语学习已暂停，当前专注数学与信号与系统")
     d = payload.get("date") or db.today_str()
     topic = payload.get("topic") or None
     difficulty = int(payload["difficulty"]) if payload.get("difficulty") else None
@@ -1049,6 +1057,7 @@ def _is_iso_date(s: str) -> bool:
 @app.get("/api/settings")
 def api_get_settings(request: Request):
     return {
+        "english_enabled": settings.english_enabled,
         "ai_ready": settings.ai_ready,
         "base_url": settings.ai_base_url,
         "model": settings.ai_model,
