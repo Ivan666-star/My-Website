@@ -26,6 +26,7 @@ from fastapi.responses import FileResponse
 
 from . import db, jobs
 from .review_plan import arrange
+from . import exam_review
 from .ai import prompts  # noqa: F401  （保留导入位，提示词写在本文件里）
 from .ai.provider import AIError, get_provider, parse_json
 from .config import settings
@@ -142,6 +143,51 @@ def normalize_math_delims(text: str) -> str:
 REVIEW_INTERVALS = [1, 2, 4, 7, 15, 30, 60]
 MASTERED_AT = len(REVIEW_INTERVALS) - 1
 _NOT_IN_CYCLE = "next_review IS NULL OR next_review=''"
+
+
+def exam_date() -> date:
+    return date.fromisoformat(db.get_user_pref("exam_date") or exam_review.DEFAULT_EXAM_DATE)
+
+
+def planned_after(interval: int, base: date | None = None) -> str:
+    return exam_review.target(base or date.today(), interval, exam_date())
+
+
+def refresh_exam_review() -> dict:
+    """每个阶段/考试日期只校正一次，保留短间隔和全部答题记录。"""
+    uid = db.require_user()
+    exam = exam_date()
+    policy = exam_review.phase(date.today(), exam)
+    policy["daily_minutes_min"] = int(db.get_user_pref("review_minutes_min", "20"))
+    policy["daily_minutes_max"] = int(db.get_user_pref("review_minutes_max", "30"))
+    signature = exam.isoformat() + ":" + policy["name"]
+    with db.connect() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        old = conn.execute("SELECT value FROM user_profile WHERE user_id=? AND key='exam_review_stage'", (uid,)).fetchone()
+        if not old or old["value"] != signature:
+            rows = conn.execute("SELECT id,next_review,planned_review,review_count,last_review_at,created_at FROM math_problems "
+                                "WHERE user_id=? AND COALESCE(next_review,'')<>''", (uid,)).fetchall()
+            for r in rows:
+                gap = REVIEW_INTERVALS[min(max(int(r["review_count"] or 0), 0), len(REVIEW_INTERVALS)-1)]
+                anchor = date.fromisoformat(str(r["last_review_at"] or r["created_at"])[:10])
+                bounded = planned_after(gap)
+                if bounded:
+                    # 阶段收紧时参考上次实际做题时间；不追溯制造过去的逾期任务。
+                    original = r["planned_review"] or r["next_review"]
+                    cap = anchor + timedelta(days=min(gap, policy["max_interval"]))
+                    original = min(original, bounded, max(cap, date.today() + timedelta(days=1)).isoformat())
+                    actual = min(r["next_review"], original)
+                else:
+                    # 考试期间仅停止布置，保留记录，避免改错考试日期后无法恢复原队列。
+                    continue
+                conn.execute("UPDATE math_problems SET planned_review=?,next_review=? WHERE id=? AND user_id=?",
+                             (original, actual, r["id"], uid))
+            arrange(conn, uid)
+            conn.execute("INSERT INTO user_profile(user_id,key,value) VALUES(?,'exam_review_stage',?) "
+                         "ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value", (uid, signature))
+        policy["beyond_exam"] = conn.execute("SELECT COUNT(*) FROM math_problems WHERE user_id=? AND next_review>=?",
+                                             (uid, exam.isoformat())).fetchone()[0]
+    return policy
 
 # 复习动作（返回给前端的说明文案也由这里派生）
 REVIEW_ACTIONS = {
@@ -276,7 +322,7 @@ def create_problem(
     # 2026-10-12 的口径是「只要最终答案，不要解析」，所以答案有自己的位置了。
     answer = normalize_math_delims((answer or "").strip())
     # 先生成自然日期，再把周末批次与后续批次依次顺延到工作日。
-    first = (date.today() + timedelta(days=REVIEW_INTERVALS[0])).isoformat()
+    first = planned_after(REVIEW_INTERVALS[0])
     with db.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
         if request_id:
@@ -415,7 +461,7 @@ def random_problem(**kw) -> dict | None:
 
 def stats(module: str = "") -> dict:
     w, a = scope_of()
-    rest = db.is_rest_day()
+    rest = db.is_rest_day() or date.today() >= exam_date()
     # 模块隔离：总量 / 到期 / 已掌握 / 按科目分布，全部只统计这个入口的科目
     subs = MODULES.get(module) or []
     if subs:
@@ -517,16 +563,20 @@ def apply_result(pid: int, result: str) -> dict | None:
     rc = row.get("review_count") or 0
 
     if result == "wrong":
-        rc, nxt = 0, (today + timedelta(days=1)).isoformat()
+        rc, nxt = 0, planned_after(1, today)
     elif result == "right":
         rc = rc + 1
-        nxt = (today + timedelta(days=REVIEW_INTERVALS[min(rc, len(REVIEW_INTERVALS) - 1)])).isoformat()
+        nxt = planned_after(REVIEW_INTERVALS[min(rc, len(REVIEW_INTERVALS) - 1)], today)
     elif result == "skip":
-        nxt = (today + timedelta(days=1)).isoformat()
+        nxt = planned_after(1, today)
     elif result == "drop":
         nxt = ""                                               # 停止提醒；错题记录保留
     else:  # readd
-        rc, nxt = 0, (today + timedelta(days=REVIEW_INTERVALS[0])).isoformat()
+        rc, nxt = 0, planned_after(REVIEW_INTERVALS[0], today)
+
+    if nxt and nxt <= today.isoformat():
+        # 最后一个考前工作日完成后，不把同一道题重新排回今天。
+        nxt = ""
 
     uid = db.require_user()
     with db.connect() as conn:
@@ -887,7 +937,9 @@ def fill_answer(pid: int) -> dict | None:
 # ============================================================
 @router.get("/meta")
 def api_meta(module: str = ""):
+    policy = refresh_exam_review()
     return {
+        "review_policy": policy,
         "module": module,
         "module_subjects": MODULES.get(module) or SUBJECTS,   # 这个入口能选的科目
         "modules": MODULES,
@@ -1083,30 +1135,36 @@ def api_random(subject: str = "", topic: str = "", kind: str = "", cycle: str = 
 def api_review_plan(module: str = "math", days: int = Query(14, ge=1, le=60)):
     if module not in MODULES:
         raise HTTPException(400, "请选择数学或信号与系统")
+    policy = refresh_exam_review()
     w, args = _filters(module=module)
     today = date.today()
+    exam = exam_date()
     end = (today + timedelta(days=days - 1)).isoformat()
     rows = db.query(
         f"SELECT id,stem,subject,planned_review,next_review FROM math_problems WHERE {w} "
         "AND next_review>=? AND next_review<=? ORDER BY next_review,id",
         (*args, today.isoformat(), end),
     )
-    return {"days": [{"date": (today + timedelta(days=i)).isoformat(),
-                      "rest": db.is_rest_day(today + timedelta(days=i)),
+    return {"policy": policy, "days": [{"date": (today + timedelta(days=i)).isoformat(),
+                      "rest": db.is_rest_day(today + timedelta(days=i)) or (today + timedelta(days=i)) >= exam,
                       "items": [r for r in rows if r["next_review"] == (today + timedelta(days=i)).isoformat()]}
                      for i in range(days)]}
 
 
 @router.get("/review/due")
 def api_due(limit: int = 100, module: str = ""):
+    policy = refresh_exam_review()
     # rest = 周末休息：周六/周日不计复习任务，前端据此显示「周末休息」而不是「今天没有」。
     # include_rest=True：周末照样把「还没复习的」列出来，用户想练随时练（2026-10-30 口径）。
-    return {
-        "items": list_problems(
-            cycle="due", limit=limit, module=module, with_analysis=False, include_rest=True
-        ),
-        "rest": db.is_rest_day(),
-    }
+    where, args = _filters(cycle="due", module=module, include_rest=True)
+    rows = db.query(
+        f"SELECT p.* FROM math_problems p WHERE {where} ORDER BY "
+        "(SELECT COUNT(*) FROM math_review_log l WHERE l.user_id=p.user_id AND l.problem_id=p.id "
+        "AND l.result='wrong' AND l.created_at>=?) DESC,p.next_review,p.id LIMIT ?",
+        (*args, (date.today()-timedelta(days=30)).isoformat(), max(1,min(int(limit),1000))),
+    ) if policy["days_left"] > 0 else []
+    items = [_row(r, with_analysis=False) for r in rows]
+    return {"items": items, "rest": db.is_rest_day() or policy["days_left"] <= 0}
 
 
 @router.get("/stats")

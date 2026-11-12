@@ -3121,6 +3121,7 @@ async function loadMath() {
     MATH.items = list.items || [];
     MATH.due = due.items || [];
     MATH.plan = plan.days || [];
+    MATH.reviewPolicy = plan.policy || {};
     /* 周末休息：周六/周日不计复习任务，但「还没复习的」照样列出来（2026-10-30） */
     MATH.rest = !!(due.rest || (meta.stats && meta.stats.rest));
     const dueShown = MATH.rest ? 0 : MATH.due.length;  // 周末不算任务，角标不亮
@@ -3147,6 +3148,7 @@ async function refreshMathPlan() {
     const plan = await api("/api/math/review/plan?module=" + encodeURIComponent(module));
     if (module !== MATH.module || currentView !== "math") return;
     MATH.plan = plan.days || [];
+    MATH.reviewPolicy = plan.policy || {};
     const grid = document.querySelector(".review-plan-grid");
     if (grid) grid.innerHTML = mathPlanGridHtml();
   } catch { toast("复习已记录，计划暂未刷新，可稍后重新打开题库", true); }
@@ -3165,6 +3167,7 @@ function renderMath() {
   const bs = st.by_subject || {};
   const chipKey = MATH.module === "sig" ? "信号与系统" : "高等数学";
   const chipLabel = MATH.module === "sig" ? "信号" : "高数";
+  const policy = MATH.reviewPolicy || {};
   const head = `
     <div class="lib-summary">
       <div class="lib-sum-item"><b>${st.total || 0}</b><span>错题总量</span></div>
@@ -3182,6 +3185,14 @@ function renderMath() {
     </div>` : ""}
     <div id="mathDraftWrap"></div>
     <div id="mathDrillWrap"></div>
+    <details class="card" style="margin:16px 0;padding:16px">
+      <summary><b>备考安排 · ${esc(policy.name || "长期巩固")} · 每日 ${Number(policy.daily_minutes_min) || 20}～${Number(policy.daily_minutes_max) || 30} 分钟</b></summary>
+      <p class="small">目标：${esc(policy.exam_date || "2027-12-18")} 初试</p>
+      <p class="muted small">考试日期以设置为准，默认是预计日期。${Number(policy.days_left) > 0 ? `距目标 ${Number(policy.days_left)} 天。` : ""}
+      每个工作日建议预留 ${Number(policy.daily_minutes_min) || 20}～${Number(policy.daily_minutes_max) || 30} 分钟；先做到期题和近期做错的题，剩余时间自主刷题。周末不布置任务。</p>
+      <p class="muted small">早期按 1、2、4、7、15、30、60 天逐步巩固；考前 120 天、60 天、30 天和最后一周，最长间隔分别收紧到 30、14、7、3 天。阶段交界会安排回顾，遇周末顺延。做错仍从短间隔重新开始。</p>
+    </details>
+    ${policy.beyond_exam ? `<p class="math-warn">有 ${Number(policy.beyond_exam)} 道题因批次顺延超出考试日期，请在考前优先自主回顾；系统没有把这些题都挤到周一。</p>` : ""}
     <details class="card review-plan"><summary>未来两周复习计划 · 周末休息</summary>
       <p class="muted small">首次录入后 1 天复习；每次做对后间隔依次为 2、4、7、15、30、60 天，做错回到 1 天。实际按日期批次安排到工作日：周六→周一、周日→周二，后续批次继续顺延。提前完成的题会安排下一次复习。</p>
       <div class="review-plan-grid">${mathPlanGridHtml()}</div>

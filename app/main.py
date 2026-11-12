@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Redirect
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, db, jobs, notes, scheduler, seed, users
+from .exam_review import DEFAULT_EXAM_DATE
 from .ai.pipeline import (
     AIError,
     analyze_exam_paper,
@@ -1038,9 +1039,7 @@ def api_stats(days: int = 7):
     return s
 
 
-# 2028 考研初试的**预计**日期。教育部自 2023 考研起固定在「12 月倒数第二个周末」，
-# 2027-12 的倒数第二个周六 = 2027-12-18。⚠️ 官方公布后让用户在「设置」里改一次。
-DEFAULT_EXAM_DATE = "2027-12-18"
+# 目标是 2027 年 12 月初试；具体日期待正式公告，默认预计值来自 exam_review。
 _ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 
