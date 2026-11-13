@@ -2125,21 +2125,15 @@ $("#btnSettings").addEventListener("click", async () => {
         服务地址：${esc(s.base_url)}<br>
         ${s.english_enabled ? `当前阶段：${esc(s.stage)}<br>
         明日难度基准：${"★".repeat(s.next_difficulty)}<br>
-        自动生成时间：每天 ${s.daily_hour}:00 之后<br>` : "英语已暂停 · 每日更新已关闭<br>当前专注数学与信号与系统错题本<br>周末休息，自主刷题随时可用<br>"}
+        自动生成时间：每天 ${s.daily_hour}:00 之后<br>` : "英语已暂停<br>"}
         ${s.scheduler && s.scheduler.last_error ? `<span style="color:var(--warn)">最近一次自动生成失败：${esc(s.scheduler.last_error)}</span>` : ""}
       </p>
-      <div class="w-group-title">考研初试日期</div>
-      <p class="muted small" style="line-height:1.8;margin-bottom:8px">
-        主界面那个倒计时按这个日期算。官方日期公布前先用<b>预计值 2027-12-18</b>
-        （近几年的规律是 12 月倒数第二个周六）—— 公布了在这里改一次就行。
-      </p>
+      <div class="w-group-title">考研初试日期（预计）</div>
       <div class="im-actions">
         <input type="date" id="examDate" class="field-input"
                value="${esc(s.exam_date || "")}" style="max-width:190px">
         <button class="btn small" id="btnSaveExamDate">保存</button>
       </div>
-      <div class="w-group-title">错题复习</div>
-      <p class="muted small">数学和信号与系统分别安排、分别记录。按到期日期复习，不设每日时长或题数上限；做错缩短间隔，做对逐步延长。周末不布置任务，可以自主刷题。</p>
       <div ${s.english_enabled ? "" : "hidden"}>
       <div class="w-group-title">学习阶段</div>
       <div class="im-actions">
@@ -2153,11 +2147,6 @@ $("#btnSettings").addEventListener("click", async () => {
       </p>
       <button class="btn small" id="btnFavList">打开素材库</button>
       </div>
-      <div class="w-group-title">模型与密钥</div>
-      <p class="muted small" style="line-height:1.8">
-        模型、接口地址、API Key 都写在项目根目录的 <b>.env</b> 文件里，改完重启服务即可生效。
-        支持任何 OpenAI 兼容接口（DeepSeek / 智谱 GLM / 通义千问 / Kimi / OpenAI / 本地 Ollama）。
-      </p>
       ${accountBlock(s.auth)}`;
     $("#btnFavList").addEventListener("click", () => { closeSheet(); navigate("library"); });
     const sx = $("#btnSaveExamDate");
@@ -2692,12 +2681,12 @@ const SUBJECTS = [
   },
   {
     key: "math", icon: "🧮", name: "数学", tag: "错题本",
-    desc: "拍照录题 · 最终答案 · 周末休息，工作日按批复习",
+    desc: "拍照录题 · 间隔复习",
     stat: "",
   },
   {
     key: "sig", icon: "📡", name: "信号与系统", tag: "错题本 · 专业课",
-    desc: "拍照录题 · 最终答案 · 周末休息，工作日按批复习",
+    desc: "拍照录题 · 间隔复习",
     stat: "",
   },
 ];
@@ -3174,7 +3163,7 @@ async function loadMath() {
 function mathPlanGridHtml() {
   return MATH.plan.map(day => `<div class="review-plan-day${day.rest ? " is-rest" : ""}">
         <b>${esc(day.date.slice(5))}</b><span>${["周日","周一","周二","周三","周四","周五","周六"][new Date(day.date + "T00:00:00").getDay()]}</span>
-        <span>${day.rest ? "休息 · 可自主刷题" : `${day.count ?? day.items.length} 道`}</span>
+        <span>${day.rest ? "休息" : `${day.count ?? day.items.length} 道`}</span>
       </div>`).join("");
 }
 
@@ -3212,26 +3201,17 @@ function renderMath() {
       <div class="lib-sum-item"><b>${bs[chipKey] || 0}</b><span>${chipLabel}</span></div>
     </div>
     <div class="math-toolbar">
-      <button class="btn primary" id="mathAddBtn">＋ 拍照录题（可多张）</button>
+      <button class="btn primary" id="mathAddBtn">＋ 拍照录题</button>
       <button class="btn" id="mathManualBtn">手动录题</button>
     </div>
     ${st.with_image ? `<div class="math-imgbar">
-      <span class="muted small">库里还留着 ${st.with_image} 张原题照片（现在录题已经不留图了）</span>
-      <button class="btn tiny" id="mathPurgeImg">清理掉，释放空间</button>
+      <span class="muted small">原题照片 ${st.with_image} 张</span>
+      <button class="btn tiny" id="mathPurgeImg">清理照片</button>
     </div>` : ""}
     <div id="mathDraftWrap"></div>
     <div id="mathDrillWrap"></div>
-    <details class="card" style="margin:16px 0;padding:16px">
-      <summary><b>备考安排 · ${esc(policy.name || "长期巩固")} · 按到期复习</b></summary>
-      <p class="small">目标：${esc(policy.exam_date || "2027-12-18")} 初试</p>
-      <p class="muted small">考试日期以设置为准，默认是预计日期。${Number(policy.days_left) > 0 ? `距目标 ${Number(policy.days_left)} 天。` : ""}
-      到期任务完整保留，优先复习逾期题，同日到期时优先近期反复做错的题。两科独立记录，不设每日时长或题数上限，周末不布置任务。</p>
-      <p class="muted small">早期按 1、2、4、7、15、30、60 天逐步巩固；考前 120 天、60 天、30 天和最后一周，最长间隔分别收紧到 30、14、7、3 天。阶段交界会安排回顾，遇周末顺延。做错仍从短间隔重新开始。</p>
-    </details>
-    ${policy.beyond_exam ? `<p class="math-warn">有 ${Number(policy.beyond_exam)} 道题因批次顺延超出考试日期，请在考前优先自主回顾；系统没有把这些题都挤到周一。</p>` : ""}
-    <details class="card review-plan"><summary>未来两周复习计划（到期分布）</summary>
-      <p class="muted small">这里只显示当前题库的到期分布，题目按各自的复习间隔安排，不按固定题数截断。周末不布置任务。</p>
-      <p class="muted small">首次录入后 1 天复习；每次做对后间隔依次为 2、4、7、15、30、60 天，做错回到 1 天。实际按日期批次安排到工作日：周六→周一、周日→周二，后续批次继续顺延。提前完成的题会安排下一次复习。</p>
+    ${policy.beyond_exam ? `<p class="math-warn">${Number(policy.beyond_exam)} 道题排期超出考试日期，请提前复习。</p>` : ""}
+    <details class="card review-plan"><summary>未来两周复习计划</summary>
       <div class="review-plan-grid">${mathPlanGridHtml()}</div>
     </details>
     <div class="field-row math-filter">
@@ -3255,7 +3235,7 @@ function renderMath() {
 
   const list = MATH.items.length
     ? MATH.items.map(mathCard).join("")
-    : `<p class="center muted" style="margin:26px 0">还没有错题。点「＋ 拍照录题」，一次可以丢好几张照片进来。</p>`;
+    : `<p class="center muted" style="margin:26px 0">暂无错题</p>`;
 
   $("#pageBody-math").innerHTML = head + `<div class="math-list">${list}</div>
     <div class="math-actions" style="margin:16px 0">
@@ -3293,7 +3273,7 @@ function mathCard(it) {
    如果只有「让 AI 算答案」而没有手改的入口，用户遇到错答案就卡住了。 */
   if (MATH.editId === it.id) {
     return `<div class="math-edit">
-      <label class="field"><span>最终答案（只要答案，不要过程）</span>
+      <label class="field"><span>最终答案</span>
         <input class="field-input" id="meAnswer" value="${esc(it.answer || "")}"
           placeholder="例如：$x=2$ 或 A"></label>
       <div class="math-actions">
@@ -3318,7 +3298,7 @@ function mathCard(it) {
       <div class="math-actions">
         <button class="btn tiny" data-m-toggle="${it.id}">${open ? "收起" : "展开"}</button>
         <button class="btn tiny" data-m-drill="${it.id}">刷这道</button>
-        <button class="btn tiny" data-m-edit="${it.id}">改题干 / 答案</button>
+        <button class="btn tiny" data-m-edit="${it.id}">修改答案</button>
         <button class="btn tiny warnish" data-m-del="${it.id}">删除</button>
       </div>
     </div>`;
@@ -3922,22 +3902,6 @@ function draftStatusHtml(d) {
   return `<span class="draft-badge ${s[0]}">${s[1]}</span>`;
 }
 
-/* AI 归类要「显著」：单独一行摆出来，下面是可改的下拉 */
-function aiClassifyHtml(d) {
-  if (d.status === "extracting") return `<div class="ai-class muted">AI 正在读题并归类…</div>`;
-  const parts = [];
-  if (d.subject) parts.push(d.subject);
-  if (d.kind) parts.push(mathKindLabel(d.kind));
-  if (!parts.length) {
-    return `<div class="ai-class muted">AI 没能判断出分类（照片可能不够清楚），自己选一下就行</div>`;
-  }
-  const chips = parts.map((p, i) =>
-    `<span class="chip${i === 0 ? " accent" : ""}">${esc(p)}</span>`).join("");
-  // 文案要对得上事实：不是 AI 给的就别写「AI 归类」
-  if (!d.aiClassified) return `<div class="ai-class muted"><b>当前分类</b>${chips}</div>`;
-  return `<div class="ai-class"><b>AI 归类</b>${chips}</div>`;
-}
-
 /* 确认录入时**必须给一份排版好的预览**。
    下面的文本框里存的是 LaTeX（要能改），可用户看不懂源码 ——
    他的原话就是「你给我的这是代码，我要能直接看明白的公式」。
@@ -3945,9 +3909,9 @@ function aiClassifyHtml(d) {
 function draftPreviewHtml(d) {
   const body = d.stem
     ? mathMtex(d.stem)
-    : `<span class="muted">${d.status === "manual" ? "输入题干后会显示在这里" : "识别完会自动显示在这里"}</span>`;
+    : `<span class="muted">${d.status === "manual" ? "输入题干" : "等待识别"}</span>`;
   return `<div class="draft-preview-wrap">
-      <div class="draft-preview-label">题干预览（公式已排版）</div>
+      <div class="draft-preview-label">题干</div>
       <div class="draft-preview">${body}</div>
     </div>`;
 }
@@ -3959,8 +3923,7 @@ function draftTopHtml(d) {
   return `
         ${d.image ? `<img class="draft-thumb" src="${d.image}" alt="题目照片">` : ""}
         <div class="draft-top-main">
-          <div class="draft-head">${draftStatusHtml(d)}
-            ${d.model ? `<span class="muted tiny">${esc(d.model)}</span>` : ""}</div>
+          <div class="draft-head">${draftStatusHtml(d)}</div>
           <div class="draft-tools">
             ${d.image ? `<button class="btn tiny" data-d-re="1" ${["extracting", "saving"].includes(d.status) ? "disabled" : ""}>重新识别</button>` : ""}
             <button class="btn tiny warnish" data-d-del="1" ${d.status === "saving" ? "disabled" : ""}>移除</button>
@@ -3968,34 +3931,22 @@ function draftTopHtml(d) {
         </div>`;
 }
 
-/* 原图释放后要说一句 —— 否则用户会以为「我拍的照片怎么没了」。
-   用 hidden 而不是删节点：局部重绘时要能再切回来。 */
-function droppedNoteHtml(d) {
-  const on = !d.image && d.imageDropped;
-  return `<div class="muted tiny draft-dropped"${on ? "" : " hidden"}>`
-       + `原图已释放，不再占用存储（题干已转成文字，可直接改）</div>`;
-}
-
 function draftCard(d) {
   const unc = (d.uncertain || []).length
-    ? `<div class="math-warn">⚠️ 这几处没把握，保存前核对一下：${d.uncertain.map(esc).join("；")}</div>`
+    ? `<div class="math-warn">⚠️ 请核对：${d.uncertain.map(esc).join("；")}</div>`
     : "";
   const err = d.status === "error" && d.error ? `<div class="math-warn">${esc(d.error)}</div>` : "";
   return `
     <div class="card math-draft-item${d.status === "error" ? " is-error" : ""}" data-draft="${d.key}">
       <div class="draft-top">${draftTopHtml(d)}</div>
-      ${droppedNoteHtml(d)}
       <div class="draft-messages">${err}${unc}</div>
       ${draftPreviewHtml(d)}
-      <!-- 源码框默认折叠：用户的原话是「你给我的这是代码」。
-           上面的「题干预览」才是给他看的；源码只在需要改的时候才展开。 -->
       <details class="draft-src">
-        <summary>编辑题干源码（LaTeX，改公式时才需要）</summary>
-        <label class="field"><span>题干${d.status === "manual" ? "" : "（AI 只取题干，答案与解析不会进来）"}</span>
+        <summary>编辑题干</summary>
+        <label class="field"><span>题干</span>
           <textarea class="field-input math-textarea math-draft-stem"
-            placeholder="${d.status === "manual" ? "在这里输入题目，公式可用 LaTeX" : "识别完会自动填进来，也可以直接手打"}">${esc(d.stem || "")}</textarea></label>
+            placeholder="输入题干">${esc(d.stem || "")}</textarea></label>
       </details>
-      ${aiClassifyHtml(d)}
       <div class="field-row">
         <label class="field"><span>科目</span>
           <select class="math-draft-subject">${mathSubjectOpts(d.subject)}</select></label>
@@ -4003,7 +3954,7 @@ function draftCard(d) {
           <select class="math-draft-kind">${mathKindOpts(d.kind)}</select></label>
       </div>
       <div class="field-row">
-        <label class="field" style="flex:2"><span>备注（可选，会一直留着）</span>
+        <label class="field" style="flex:2"><span>备注</span>
           <input class="field-input math-draft-note" value="${esc(d.source_note || "")}"
             placeholder="例如：880 题 第 3 章 12 题"></label>
       </div>
@@ -4024,17 +3975,13 @@ function renderDraft() {
       <input type="file" id="mathShot" accept="image/*" capture="environment" hidden>
       <div class="math-drop">
         <button class="btn" id="mathShotBtn">📷 直接拍照</button>
-        <button class="btn" id="mathPick">🖼️ 从相册选（可多选）</button>
-        <p class="muted small" style="margin:8px 0 0">
-          也可以 Ctrl+V 一次粘贴多张截图。识别后由 AI 归类，你可以改；
-          原图临时留在本页供核对，保存成功后释放，不存入服务器。缺答案也能先保存。</p>
+        <button class="btn" id="mathPick">🖼️ 选择照片</button>
       </div>
       <div class="math-draft-actions">
         <button class="btn primary" id="mathSaveAll" ${n && !busy && !MATH.savingModules.has(MATH.module) ? "" : "disabled"}>
           ${busy ? "识别中…" : (n ? `全部保存（${n} 道）` : "全部保存")}</button>
         <button class="btn ghost" id="mathCancel">关闭</button>
       </div>
-      <p class="muted small" style="margin-top:8px">首次复习在 1 天后；做对后逐步间隔 2、4、7、15、30、60 天，做错回到 1 天；周末批次依次顺延。</p>
     </div>
     ${drafts.length ? `<div class="math-draft-list">${drafts.map(draftCard).join("")}</div>` : ""}`;
 }
@@ -4060,13 +4007,9 @@ function paintDraftCard(key) {
     const sig = `${d.status}|${d.image ? 1 : 0}|${d.model || ""}`;
     if (top.dataset.sig !== sig) { top.innerHTML = draftTopHtml(d); top.dataset.sig = sig; }
   }
-  const dn = el.querySelector(".draft-dropped");
-  if (dn) dn.hidden = !(!d.image && d.imageDropped);
-  const ai = el.querySelector(".ai-class");
-  if (ai && d.status !== "extracting") ai.outerHTML = aiClassifyHtml(d);
   /* 预览跟着题干走（用户边改 LaTeX 边看排版结果，改错了立刻能发现） */
   const pv = el.querySelector(".draft-preview");
-  if (pv) pv.innerHTML = d.stem ? mathMtex(d.stem) : `<span class="muted">${d.status === "manual" ? "输入题干后会显示在这里" : "识别完会自动显示在这里"}</span>`;
+  if (pv) pv.innerHTML = d.stem ? mathMtex(d.stem) : `<span class="muted">${d.status === "manual" ? "输入题干" : "等待识别"}</span>`;
   const ss = el.querySelector(".math-draft-subject");
   if (ss) ss.value = d.subject || "";
 
@@ -4138,8 +4081,8 @@ function mathAnswerBlock(it) {
   }
   return `<div class="math-answer is-empty">
     <b>最终答案</b>
-    <div class="muted small">这道题还没有答案。
-      <button class="btn tiny" data-m-ask-answer="${it.id}">让 AI 只算个答案</button>
+    <div class="muted small">暂无答案
+      <button class="btn tiny" data-m-ask-answer="${it.id}">补充答案</button>
     </div>
   </div>`;
 }
@@ -4151,8 +4094,8 @@ function renderDrill() {
   const p = MATH.drill;
   const daily = MATH.daily;
   const workload = daily ? `<section class="card" style="margin:16px 0;padding:16px" id="mathWorkload">
-    <b>${MATH.rest ? "今天不布置复习任务" : `当前题库待复习 ${daily.remaining} 道`}</b>
-    <p class="muted small">本题库今天已练 ${daily.completed} 道。按到期日期逐题复习，不设时长或题数上限；数学和信号的进度分别记录。</p>
+    <b>${MATH.rest ? "今日无复习任务" : `待复习 ${daily.remaining} 道`}</b>
+    <p class="muted small">今日已练 ${daily.completed} 道</p>
     ${MATH.rest && (MATH.pending || MATH.showAllDue) ? `<button class="btn small" id="mathDueToggle">${MATH.showAllDue ? "收起可选练习" : "查看可选练习"}</button>` : ""}
   </section>` : "";
   /* 周末休息（2026-10-19 / 2026-10-30）：
@@ -4162,12 +4105,8 @@ function renderDrill() {
   const due = MATH.due.length ? `
     <section class="math-due" aria-label="${MATH.rest ? "周末可选题" : "今天该复习的错题"}">
       <div class="math-sec-title">${MATH.rest
-        ? `🌴 周末可选练习：还没复习的错题（${MATH.due.length}）`
-        : `当前题库到期任务（共 ${MATH.pending} 道）`}</div>
-      ${MATH.rest ? `<p class="muted small" style="margin:0 0 10px;line-height:1.8">
-        周末不算复习任务，这些是攒着还没复习的题 —— 想练就练，练完照常往下排；
-        一个都不动也没关系，周一照旧。
-      </p>` : ""}
+        ? `可选练习（${MATH.pending} 道）`
+        : `到期题目（${MATH.pending} 道）`}</div>
       ${MATH.due.map(it => `
         <div class="card math-due-card" data-due-id="${it.id}">
           <div class="math-chips">${mathChips(it)}</div>
@@ -4179,19 +4118,13 @@ function renderDrill() {
           </div>
         </div>`).join("")}
       ${MATH.dueNextOffset != null ? `<button class="btn" id="mathDueMore">继续显示到期题（已显示 ${MATH.due.length} / ${MATH.pending} 道）</button>` : ""}
-    </section>` : (MATH.rest ? `
-    <section class="math-due" aria-label="周末休息">
-      <div class="math-sec-title">🌴 周末休息</div>
-      <p class="muted small" style="margin:0;line-height:1.8">
-        周末不排复习任务。${MATH.pending ? "可以点上方「查看可选练习」复习还没完成的题，或" : "想自己做几道，"}随时点顶栏「开始刷题」。
-      </p>
-    </section>` : "");
+    </section>` : "";
   if (!p) { box.innerHTML = workload + due; return; }
   const img = p.has_image
     ? `<img class="math-photo" src="${notebookUrl(`/api/math/problems/${p.id}/image`)}" alt="原题照片">` : "";
   box.innerHTML = `
     <div class="card math-drill">
-      <div class="math-sec-title">刷题 · 自己先做，做完点下面两个键</div>
+      <div class="math-sec-title">刷题</div>
       <div class="math-chips">${mathChips(p)}</div>
       <div class="math-stem">${mathMtex(p.stem)}</div>
       ${img}
@@ -4451,7 +4384,7 @@ document.addEventListener("click", async e => {
     } catch (err) {
       toast(err.message, true);
       askAns.disabled = false;
-      askAns.textContent = "让 AI 只算个答案";
+      askAns.textContent = "补充答案";
     }
     return;
   }
