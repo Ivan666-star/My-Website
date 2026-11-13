@@ -6,6 +6,12 @@
 )
 $ErrorActionPreference = 'Stop'
 $siteDir = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$bootRuntime = Join-Path $siteDir 'data\boot'
+if (Test-Path -LiteralPath (Join-Path $bootRuntime 'enabled.flag')) {
+    Remove-Item -LiteralPath (Join-Path $bootRuntime 'tunnel.disabled') -ErrorAction SilentlyContinue
+    Write-Host '已请求开机后台任务启动公网隧道，通常几秒后可访问。'
+    return
+}
 New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
 New-Item -ItemType Directory -Path (Split-Path $AddressFile -Parent) -Force | Out-Null
 $exe = Join-Path $RuntimeDir 'cloudflared.exe'

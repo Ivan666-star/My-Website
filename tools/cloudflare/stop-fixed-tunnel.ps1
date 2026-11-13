@@ -3,6 +3,13 @@
     [string]$AddressFile = (Join-Path $RuntimeDir 'Prism网站地址.txt')
 )
 $ErrorActionPreference = 'Stop'
+$siteDir = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$bootRuntime = Join-Path $siteDir 'data\boot'
+if (Test-Path -LiteralPath (Join-Path $bootRuntime 'enabled.flag')) {
+    New-Item -ItemType File -Path (Join-Path $bootRuntime 'tunnel.disabled') -Force | Out-Null
+    Write-Host '已请求后台任务关闭公网隧道，本机网站继续运行。'
+    return
+}
 New-Item -ItemType Directory -Path $RuntimeDir -Force | Out-Null
 New-Item -ItemType Directory -Path (Split-Path $AddressFile -Parent) -Force | Out-Null
 $exe = Join-Path $RuntimeDir 'cloudflared.exe'
