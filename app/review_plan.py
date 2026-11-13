@@ -2,15 +2,20 @@
 from datetime import date, timedelta
 import sqlite3
 from .exam_review import DEFAULT_EXAM_DATE
+from .notebooks import subjects_for
 
 
-def arrange(conn: sqlite3.Connection, user_id: int | None = None) -> None:
+def arrange(conn: sqlite3.Connection, user_id: int | None = None, module: str = "") -> None:
     """在调用方的写事务内重排。原计划不变，已公布日期只允许往后顺延。
 
     相同原计划日期为一批；不同科目模块、不同账号分别排期。
     没有题目的日期不占位，空出来的位置也不会让其他题突然提前。
     """
     clause, args = (" AND user_id=?", (user_id,)) if user_id is not None else ("", ())
+    if module:
+        subjects = subjects_for(module)
+        clause += " AND subject IN (" + ",".join("?" for _ in subjects) + ")"
+        args = (*args, *subjects)
     rows = conn.execute(
         "SELECT id,user_id,subject,planned_review,next_review FROM math_problems "
         "WHERE COALESCE(next_review,'')<>''" + clause + " ORDER BY planned_review,id", args,

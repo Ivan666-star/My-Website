@@ -2138,12 +2138,8 @@ $("#btnSettings").addEventListener("click", async () => {
                value="${esc(s.exam_date || "")}" style="max-width:190px">
         <button class="btn small" id="btnSaveExamDate">保存</button>
       </div>
-      <div class="w-group-title">每日错题建议量</div>
-      <p class="muted small">数学与信号共用每日时间预算。单题预计用时只用于估算建议量，难题可以少做，自主刷题不受限制。</p>
-      <div class="im-actions">
-        <label>每题约 <input type="number" id="reviewItemMinutes" min="1" max="30" class="field-input" style="width:80px" value="${Number(s.review_item_minutes) || 6}"> 分钟</label>
-        <button class="btn small" id="btnSaveReviewPace">保存</button>
-      </div>
+      <div class="w-group-title">错题复习</div>
+      <p class="muted small">数学和信号与系统分别安排、分别记录。按到期日期复习，不设每日时长或题数上限；做错缩短间隔，做对逐步延长。周末不布置任务，可以自主刷题。</p>
       <div ${s.english_enabled ? "" : "hidden"}>
       <div class="w-group-title">学习阶段</div>
       <div class="im-actions">
@@ -2171,13 +2167,6 @@ $("#btnSettings").addEventListener("click", async () => {
       EXAM.date = v;
       toast("已保存考试日期");
       $("#btnSettings").click();
-    });
-    $("#btnSaveReviewPace").addEventListener("click", async () => {
-      try {
-        await api("/api/settings", {method:"POST",body:JSON.stringify({review_item_minutes:$("#reviewItemMinutes").value})});
-        toast("已调整每日建议量");
-        if (currentView === "math") refreshMathDue();
-      } catch (error) { toast(error.message,true); }
     });
     const lo = $("#btnLogout");
     if (lo) lo.addEventListener("click", () => { location.href = "/logout"; });
@@ -2547,9 +2536,12 @@ function route() {
     if (MATH.module !== module) {
       moduleChanged = true;
       if (MATH.markCurrent) mathMarkClose(true);
+      MATH.moduleFilters[MATH.module] = { ...MATH.f };
       MATH.module = module;
-      MATH.f.subject = module === "sig" ? "信号与系统" : "";
-      MATH.f.topic = "";
+      MATH.f = { subject: module === "sig" ? "信号与系统" : "", topic: "", kind: "", q: "", cycle: "", ...MATH.moduleFilters[module] };
+      MATH.items = []; MATH.due = []; MATH.daily = null; MATH.plan = [];
+      MATH.pending = 0; MATH.listTotal = 0; MATH.nextOffset = null; MATH.dueNextOffset = null;
+      MATH.editId = null; MATH.draftOpen = false;
       MATH.listOffset = 0;
       MATH.showAllDue = false;
       MATH.meta = null;
@@ -2681,7 +2673,7 @@ syncMetrics();
      1. 录题 = 拍照 → **只取题干** → 人工确认分类 → 保存。
         题干是唯一必填项；原图是附带证据，存不下也不该卡住录题。
      2. 刷题 = 题干 + 最终答案 + 「会做了 / 不会做」两个键（2026-10-12 起不再生成解析）。
-     3. 复习 = 3 / 7 / 14 / 30 / 60 天阶梯；做错回到起点（次日再见）。
+     3. 复习 = 1 / 2 / 4 / 7 / 15 / 30 / 60 天阶梯；做错次日再见，周末顺延。
    ========================================================== */
 /* ==========================================================
    科目选择（主界面）
@@ -2754,21 +2746,13 @@ async function loadSubjects() {
   SUBJECTS[2].stat = "";
   renderSubjects();
   try {
-    const m = await api("/api/math/meta");
+    const [math, sig] = await Promise.all([
+      api("/api/math/stats?module=math"), api("/api/math/stats?module=sig"),
+    ]);
     if (request !== subjectsLoadSeq || currentView !== "subjects") return;
-    const st = m.stats || {};
-    /* 信号与系统与数学共用同一个错题库引擎（同一张表），
-       卡片要各显各的数，所以按 by_subject 拆开算，不能拿模块总数直接填。 */
-    const bs = st.by_subject || {}, bsd = st.by_subject_due || {};
-    const MATH_SUBS = ["高等数学", "线性代数", "概率论与数理统计"];
-    const mTotal = MATH_SUBS.reduce((n, s) => n + (bs[s] || 0), 0);
-    const mDue = MATH_SUBS.reduce((n, s) => n + (bsd[s] || 0), 0);
-    SUBJECTS[1].stat = mTotal ? `${mTotal} 道错题 · ${mDue} 道已到期` : "还没有错题";
-    SUBJECTS[2].stat = (bs["信号与系统"] || 0)
-      ? `${bs["信号与系统"]} 道错题 · ${bsd["信号与系统"] || 0} 道已到期`
-      : "还没有错题";
-    /* 🎓 上的角标只算数学模块 —— 信号的到期数不许出现在英语顶栏（模块隔离） */
-    setMathBadge(mDue);
+    SUBJECTS[1].stat = math.total ? `${math.total} 道错题 · ${math.due} 道已到期` : "还没有错题";
+    SUBJECTS[2].stat = sig.total ? `${sig.total} 道错题 · ${sig.due} 道已到期` : "还没有错题";
+    setMathBadge(math.due);
   } catch {
     /* 拿不到统计就不显示，别挡着入口 */
   }
@@ -2824,6 +2808,7 @@ const MATH = {
   listOffset: 0,
   listTotal: 0,
   nextOffset: null,
+  dueNextOffset: null,
   rest: false,           // 周末休息：周六/周日没有到期错题（见 db.is_rest_day）
   dueAnswers: new Map(), // 已揭示的到期题解析；未揭示前接口不返回解法
   f: { subject: "", topic: "", kind: "", q: "", cycle: "" },
@@ -2850,11 +2835,30 @@ const MATH = {
   editHistory: [],
   editOriginal: "",
   extractRunning: false,
-  saveRunning: false,
+  savingModules: new Set(),
+  moduleFilters: {},
   plan: [],
   drill: null,           // 正在刷的那道（2026-10-12 起：带最终答案，不带解析）
   revealed: false,
 };
+
+/* 所有题目操作都带题库范围；旧科目的响应不能改写新科目的页面。 */
+function notebookUrl(path, module = MATH.module) {
+  const url = new URL(path, location.origin);
+  url.searchParams.set("module", module);
+  return url.pathname + url.search;
+}
+async function notebookApi(path, options) {
+  const module = MATH.module, epoch = MATH.loadSeq;
+  const result = await api(notebookUrl(path, module), options);
+  if (MATH.module !== module || MATH.loadSeq !== epoch || currentView !== "math") {
+    throw new Error("页面已切换，操作结果已留在原题库，请返回查看");
+  }
+  return result;
+}
+function notebookDrafts() {
+  return MATH.drafts.filter(d => d.module === MATH.module);
+}
 
 /* ---- 公式渲染：本地 KaTeX（PWA 离线也能用） ----
    只认这几种定界：$$…$$ / $…$ / \[…\] / \(…\)。
@@ -2948,8 +2952,8 @@ function mathSubjectOpts(cur) {
   /* 模块隔离：每个入口只能建 / 筛自己科目的题 ——
      在信号页里不该能选「高等数学」，否则又混回去了 */
   const m = MATH.meta || {};
-  const subs = m.module_subjects || m.subjects || [];
-  return `<option value="">未分类</option>` +
+  const subs = (m.module_subjects || []).filter(Boolean);
+  return (MATH.module === "sig" ? "" : `<option value="">未分类</option>`) +
     subs.map(s => `<option value="${esc(s)}"${s === cur ? " selected" : ""}>${esc(s)}</option>`).join("");
 }
 function mathTopicOpts(subject, cur) {
@@ -3104,7 +3108,7 @@ async function refreshMathBadge() {
     const d = await api("/api/math/review/due?module=math");
     /* 周末休息：后端会把「还没复习的」照样列出来给用户自愿练（2026-10-30），
        但周末不算复习任务，角标不亮。 */
-    setMathBadge(d.rest ? 0 : (d.items || []).length);
+    setMathBadge(d.rest ? 0 : d.pending);
   } catch { /* 未登录 / 服务抖动都不显示 */ }
 }
 
@@ -3112,7 +3116,7 @@ async function refreshMathBadge() {
    为什么不重新请求：为了两个数字去拉整页（列表 + meta + due 三个接口），
    在手机上就是一次明显的卡顿；而 MATH.due 已经是我们自己删过的最新状态了。 */
 function bumpMathDueCount() {
-  const n = (MATH.due || []).length;
+  const n = MATH.pending;
   const shown = MATH.rest ? 0 : n;   /* 周末不算任务，角标保持不亮（2026-10-30） */
   setMathLibBadge(shown);
   if (MATH.module === "math") setMathBadge(shown);
@@ -3149,13 +3153,14 @@ async function loadMath() {
     MATH.listTotal = list.total ?? ((meta.stats || {}).total || MATH.items.length);
     MATH.nextOffset = list.next_offset;
     MATH.due = due.items || [];
+    MATH.dueNextOffset = due.next_offset;
     MATH.daily = due.daily || null;
     MATH.pending = due.pending ?? ((meta.stats || {}).pending || 0);
     MATH.plan = plan.days || [];
     MATH.reviewPolicy = plan.policy || {};
     /* 周末休息：周六/周日不计复习任务，但「还没复习的」照样列出来（2026-10-30） */
     MATH.rest = !!(due.rest || (meta.stats && meta.stats.rest));
-    const dueShown = MATH.rest ? 0 : MATH.due.length;  // 周末不算任务，角标不亮
+    const dueShown = MATH.rest ? 0 : MATH.pending;  // 周末不算任务，角标不亮
     setMathLibBadge(dueShown);                 // 页内角标 = 当前模块
     if (module === "math") setMathBadge(dueShown);  // 🎓 只认数学，别被信号改掉
     renderMath();
@@ -3217,15 +3222,15 @@ function renderMath() {
     <div id="mathDraftWrap"></div>
     <div id="mathDrillWrap"></div>
     <details class="card" style="margin:16px 0;padding:16px">
-      <summary><b>备考安排 · ${esc(policy.name || "长期巩固")} · 每日 ${Number(policy.daily_minutes_min) || 20}～${Number(policy.daily_minutes_max) || 30} 分钟</b></summary>
+      <summary><b>备考安排 · ${esc(policy.name || "长期巩固")} · 按到期复习</b></summary>
       <p class="small">目标：${esc(policy.exam_date || "2027-12-18")} 初试</p>
       <p class="muted small">考试日期以设置为准，默认是预计日期。${Number(policy.days_left) > 0 ? `距目标 ${Number(policy.days_left)} 天。` : ""}
-      每个工作日建议预留 ${Number(policy.daily_minutes_min) || 20}～${Number(policy.daily_minutes_max) || 30} 分钟；先做到期题和近期做错的题，剩余时间自主刷题。周末不布置任务。</p>
+      到期任务完整保留，优先复习逾期题，同日到期时优先近期反复做错的题。两科独立记录，不设每日时长或题数上限，周末不布置任务。</p>
       <p class="muted small">早期按 1、2、4、7、15、30、60 天逐步巩固；考前 120 天、60 天、30 天和最后一周，最长间隔分别收紧到 30、14、7、3 天。阶段交界会安排回顾，遇周末顺延。做错仍从短间隔重新开始。</p>
     </details>
     ${policy.beyond_exam ? `<p class="math-warn">有 ${Number(policy.beyond_exam)} 道题因批次顺延超出考试日期，请在考前优先自主回顾；系统没有把这些题都挤到周一。</p>` : ""}
     <details class="card review-plan"><summary>未来两周复习计划（到期分布）</summary>
-      <p class="muted small">下面是到期题量分布，实际每天只推荐时间预算内的一部分；剩余题目保留在队列中。周末不布置任务。</p>
+      <p class="muted small">这里只显示当前题库的到期分布，题目按各自的复习间隔安排，不按固定题数截断。周末不布置任务。</p>
       <p class="muted small">首次录入后 1 天复习；每次做对后间隔依次为 2、4、7、15、30、60 天，做错回到 1 天。实际按日期批次安排到工作日：周六→周一、周日→周二，后续批次继续顺延。提前完成的题会安排下一次复习。</p>
       <div class="review-plan-grid">${mathPlanGridHtml()}</div>
     </details>
@@ -3277,7 +3282,7 @@ function markClampedMath() {
 function mathCard(it) {
   const open = MATH.openId === it.id;
   const img = it.has_image
-    ? `<img class="math-photo" src="/api/math/problems/${it.id}/image" alt="原题照片" loading="lazy">`
+    ? `<img class="math-photo" src="${notebookUrl(`/api/math/problems/${it.id}/image`)}" alt="原题照片" loading="lazy">`
     : "";
 
   /* 答案直接读 it.answer（独立列）。
@@ -3343,7 +3348,7 @@ function mathNewDraft(image) {
     saveId: crypto.randomUUID().replaceAll("-", ""),
     marker: null,
     stem: "",
-    subject: MATH.f.subject || "",
+    subject: MATH.module === "sig" ? "信号与系统" : (MATH.f.subject || ""),
     topic: "",
     kind: "normal",
     source_note: "",
@@ -3884,7 +3889,7 @@ async function mathExtractWorker() {
 
 async function mathExtractImage(d) {
   if (!d.extractId) d.extractId = crypto.randomUUID().replaceAll("-", "");
-  let job = await api("/api/math/extract/jobs", {
+  let job = await api(notebookUrl("/api/math/extract/jobs", d.module), {
     method: "POST", body: JSON.stringify({ request_id: d.extractId, image: d.image,
       subject: d.subject || (d.module === "sig" ? "信号与系统" : ""), topic: d.topic || "", marker: d.marker }),
   });
@@ -3892,7 +3897,7 @@ async function mathExtractImage(d) {
   while (job.running) {
     if (Date.now() - started > 15 * 60 * 1000) throw new Error("识别仍在后台进行，可点重新识别查询同一任务的结果");
     await new Promise(resolve => setTimeout(resolve, 1500));
-    try { job = await api("/api/math/extract/jobs/" + d.extractId); }
+    try { job = await api(notebookUrl("/api/math/extract/jobs/" + d.extractId, d.module)); }
     catch (error) {
       if (error.message.includes("已过期")) d.extractId = "";
       throw error;
@@ -4008,12 +4013,13 @@ function draftCard(d) {
 function renderDraft() {
   const box = $("#mathDraftWrap");
   if (!box) return;
-  if (!MATH.draftOpen && !MATH.drafts.length) { box.innerHTML = ""; return; }
-  const n = MATH.drafts.filter(draftReady).length;
-  const busy = MATH.drafts.some(d => d.status === "extracting");
+  const drafts = notebookDrafts();
+  if (!MATH.draftOpen && !drafts.length) { box.innerHTML = ""; return; }
+  const n = notebookDrafts().filter(draftReady).length;
+  const busy = notebookDrafts().some(d => d.status === "extracting");
   box.innerHTML = `
     <div class="card math-draft">
-      <div class="math-sec-title">录入错题${MATH.drafts.length ? `（${MATH.drafts.length} 道待确认）` : ""}</div>
+      <div class="math-sec-title">录入错题${drafts.length ? `（${drafts.length} 道待确认）` : ""}</div>
       <input type="file" id="mathPhoto" accept="image/*" multiple hidden>
       <input type="file" id="mathShot" accept="image/*" capture="environment" hidden>
       <div class="math-drop">
@@ -4024,13 +4030,13 @@ function renderDraft() {
           原图临时留在本页供核对，保存成功后释放，不存入服务器。缺答案也能先保存。</p>
       </div>
       <div class="math-draft-actions">
-        <button class="btn primary" id="mathSaveAll" ${n && !busy && !MATH.saveRunning ? "" : "disabled"}>
+        <button class="btn primary" id="mathSaveAll" ${n && !busy && !MATH.savingModules.has(MATH.module) ? "" : "disabled"}>
           ${busy ? "识别中…" : (n ? `全部保存（${n} 道）` : "全部保存")}</button>
         <button class="btn ghost" id="mathCancel">关闭</button>
       </div>
       <p class="muted small" style="margin-top:8px">首次复习在 1 天后；做对后逐步间隔 2、4、7、15、30、60 天，做错回到 1 天；周末批次依次顺延。</p>
     </div>
-    ${MATH.drafts.length ? `<div class="math-draft-list">${MATH.drafts.map(draftCard).join("")}</div>` : ""}`;
+    ${drafts.length ? `<div class="math-draft-list">${drafts.map(draftCard).join("")}</div>` : ""}`;
 }
 
 /* 局部重绘一张草稿卡：不碰 textarea（否则正在打字的人会丢焦点） */
@@ -4072,24 +4078,25 @@ function paintDraftCard(key) {
 function mathSyncSaveBtn() {
   const btn = $("#mathSaveAll");
   if (!btn) return;
-  const n = MATH.drafts.filter(draftReady).length;
-  const busy = MATH.drafts.some(d => d.status === "extracting");
-  btn.disabled = !n || busy || MATH.saveRunning;
+  const n = notebookDrafts().filter(draftReady).length;
+  const busy = notebookDrafts().some(d => d.status === "extracting");
+  btn.disabled = !n || busy || MATH.savingModules.has(MATH.module);
   btn.textContent = busy ? "识别中…" : (n ? `全部保存（${n} 道）` : "全部保存");
 }
 
 async function mathSaveAll() {
-  if (MATH.saveRunning) return;
-  const list = MATH.drafts.filter(draftReady);
+  if (MATH.savingModules.has(MATH.module)) return;
+  const module = MATH.module;
+  const list = notebookDrafts().filter(draftReady);
   if (!list.length) { toast("还没有可保存的题干", true); return; }
-  MATH.saveRunning = true;
+  MATH.savingModules.add(module);
   mathSyncSaveBtn();
   let ok = 0, fail = 0;
   for (const d of list) {
     d.status = "saving"; d.error = "";
     paintDraftCard(d.key);
     try {
-      await api("/api/math/problems", {
+      await api(notebookUrl("/api/math/problems", d.module), {
         method: "POST",
         body: JSON.stringify({
           request_id: d.saveId, stem: d.stem, subject: d.subject, topic: d.topic, kind: d.kind,
@@ -4107,11 +4114,10 @@ async function mathSaveAll() {
   }
   // 存成功的移出队列；失败的 / 还没识别的留着让人接着处理
   MATH.drafts = MATH.drafts.filter(d => d.status !== "saved");
-  if (!MATH.drafts.length) MATH.draftOpen = false;
-  MATH.meta = null;                 // 统计要重算
-  MATH.listOffset = 0;
-  MATH.saveRunning = false;
-  await loadMath();
+  if (MATH.module === module && !notebookDrafts().length) MATH.draftOpen = false;
+  if (MATH.module === module) { MATH.meta = null; MATH.listOffset = 0; }
+  MATH.savingModules.delete(module);
+  if (MATH.module === module && currentView === "math") await loadMath();
   toast(`已存入错题库 ${ok} 道${fail ? `，${fail} 道失败` : ""}`, !!fail);
 }
 
@@ -4145,12 +4151,9 @@ function renderDrill() {
   const p = MATH.drill;
   const daily = MATH.daily;
   const workload = daily ? `<section class="card" style="margin:16px 0;padding:16px" id="mathWorkload">
-    <b>${MATH.rest ? "今天不布置复习任务" : `今日建议剩余 ${daily.remaining} 道（数学与信号合计）`}</b>
-    <p class="muted small">每天 ${daily.minutes_min}～${daily.minutes_max} 分钟，初步按每题约 ${daily.item_minutes} 分钟估算。
-      今天已练 ${daily.completed} 道；${MATH.module === "sig" ? "信号" : "数学"}到期队列 ${MATH.pending} 道，无需今天全部刷完。
-      做题较慢时可以少做，也可以在设置里调整单题预计用时。</p>
-    ${MATH.pending || MATH.showAllDue ? `<button class="btn small" id="mathDueToggle">${MATH.showAllDue ? "返回今日建议" : (MATH.rest ? "查看可选练习" : "自主查看到期队列")}</button>` : ""}
-    ${MATH.showAllDue ? `<p class="muted small">当前是自主练习，不计为额外任务；本页显示 ${MATH.due.length} 道，可在题库按到期状态分页查看。</p>` : ""}
+    <b>${MATH.rest ? "今天不布置复习任务" : `当前题库待复习 ${daily.remaining} 道`}</b>
+    <p class="muted small">本题库今天已练 ${daily.completed} 道。按到期日期逐题复习，不设时长或题数上限；数学和信号的进度分别记录。</p>
+    ${MATH.rest && (MATH.pending || MATH.showAllDue) ? `<button class="btn small" id="mathDueToggle">${MATH.showAllDue ? "收起可选练习" : "查看可选练习"}</button>` : ""}
   </section>` : "";
   /* 周末休息（2026-10-19 / 2026-10-30）：
      · 休息日「今天该复习的错题」计数是 0、角标不亮；
@@ -4160,7 +4163,7 @@ function renderDrill() {
     <section class="math-due" aria-label="${MATH.rest ? "周末可选题" : "今天该复习的错题"}">
       <div class="math-sec-title">${MATH.rest
         ? `🌴 周末可选练习：还没复习的错题（${MATH.due.length}）`
-        : `${MATH.showAllDue ? "自主练习 · 到期题" : "当前科目今日建议"}（${MATH.due.length}）`}</div>
+        : `当前题库到期任务（共 ${MATH.pending} 道）`}</div>
       ${MATH.rest ? `<p class="muted small" style="margin:0 0 10px;line-height:1.8">
         周末不算复习任务，这些是攒着还没复习的题 —— 想练就练，练完照常往下排；
         一个都不动也没关系，周一照旧。
@@ -4175,16 +4178,17 @@ function renderDrill() {
             <button class="btn small warnish" data-due-res="wrong">❌ 不会做</button>
           </div>
         </div>`).join("")}
+      ${MATH.dueNextOffset != null ? `<button class="btn" id="mathDueMore">继续显示到期题（已显示 ${MATH.due.length} / ${MATH.pending} 道）</button>` : ""}
     </section>` : (MATH.rest ? `
     <section class="math-due" aria-label="周末休息">
       <div class="math-sec-title">🌴 周末休息</div>
       <p class="muted small" style="margin:0;line-height:1.8">
-        周末不排复习任务，手头也没有欠着的错题。想自己做几道，随时点顶栏「开始刷题」。
+        周末不排复习任务。${MATH.pending ? "可以点上方「查看可选练习」复习还没完成的题，或" : "想自己做几道，"}随时点顶栏「开始刷题」。
       </p>
     </section>` : "");
   if (!p) { box.innerHTML = workload + due; return; }
   const img = p.has_image
-    ? `<img class="math-photo" src="/api/math/problems/${p.id}/image" alt="原题照片">` : "";
+    ? `<img class="math-photo" src="${notebookUrl(`/api/math/problems/${p.id}/image`)}" alt="原题照片">` : "";
   box.innerHTML = `
     <div class="card math-drill">
       <div class="math-sec-title">刷题 · 自己先做，做完点下面两个键</div>
@@ -4200,17 +4204,20 @@ function renderDrill() {
     </div>${workload}${due}`;
 }
 
-async function refreshMathDue() {
+async function refreshMathDue(append = false) {
   const module = MATH.module, epoch = MATH.loadSeq;
   const request = MATH.dueRequest = (MATH.dueRequest || 0) + 1;
   try {
-    const due = await api("/api/math/review/due?module="+encodeURIComponent(module)+(MATH.showAllDue ? "&all_due=1&limit=20" : ""));
+    const offset = append ? MATH.dueNextOffset : 0;
+    if (offset == null) return;
+    const due = await api("/api/math/review/due?module="+encodeURIComponent(module)+"&offset="+offset+(MATH.showAllDue ? "&all_due=1" : ""));
     if (currentView !== "math" || MATH.module !== module || MATH.loadSeq !== epoch || MATH.dueRequest !== request) return;
-    MATH.due = due.items || []; MATH.daily = due.daily || null; MATH.pending = due.pending || 0; MATH.rest = !!due.rest;
+    MATH.due = append ? [...MATH.due, ...(due.items || [])] : (due.items || []);
+    MATH.dueNextOffset = due.next_offset; MATH.daily = due.daily || null; MATH.pending = due.pending || 0; MATH.rest = !!due.rest;
     const count = document.querySelector('[data-m-stat="due"]');
     if (count) count.textContent = MATH.pending;
     renderDrill(); bumpMathDueCount();
-  } catch { toast("复习已记录，建议清单暂未刷新，可重新打开题库",true); }
+  } catch { toast("到期队列暂未刷新，可重新打开当前题库",true); }
 }
 
 /* 开始刷题：从**本模块全部**错题里随机抽一道 —— 用户 2026-10-07 明确口径「从我所有错题
@@ -4218,7 +4225,7 @@ async function refreshMathDue() {
    但 2026-10-08 起必须带 module：信号的刷题不许抽出数学题，反之亦然。 */
 async function mathRandom() {
   try {
-    const r = await api("/api/math/random?module=" + encodeURIComponent(MATH.module));
+    const r = await notebookApi("/api/math/random");
     if (!r.problem) { toast("错题库还是空的，先拍照录几道", true); return; }
     MATH.drill = r.problem;
     MATH.revealed = false;
@@ -4230,7 +4237,7 @@ async function mathRandom() {
 
 async function mathDrillOne(id) {
   try {
-    const p = await api("/api/math/problems/" + id);
+    const p = await notebookApi("/api/math/problems/" + id);
     MATH.drill = p;
     MATH.revealed = false;
     if (currentView !== "math") { navigate(MATH.module === "sig" ? "sig" : "math"); await loadMath(); }
@@ -4259,6 +4266,7 @@ document.addEventListener("click", async e => {
   }
 
   if (!e.target.closest("#pageBody-math")) return;
+  if (e.target.closest("#mathDueMore")) { await refreshMathDue(true); return; }
   if (e.target.closest("#mathDueToggle")) { MATH.showAllDue = !MATH.showAllDue; await refreshMathDue(); return; }
   if (e.target.closest("#mathListNext")) { MATH.listOffset = MATH.nextOffset || 0; await loadMath(); return; }
   if (e.target.closest("#mathListPrev")) { MATH.listOffset = Math.max(0,MATH.listOffset-100); await loadMath(); return; }
@@ -4267,7 +4275,7 @@ document.addEventListener("click", async e => {
   if (e.target.closest("#mathPurgeImg")) {
     if (!confirm("把所有已存的原题照片删掉？（题干、解析、复习记录都不动）")) return;
     try {
-      const r = await api("/api/math/images/purge", { method: "POST", body: "{}" });
+      const r = await notebookApi("/api/math/images/purge", { method: "POST", body: "{}" });
       const mb = r.bytes ? `，约 ${(r.bytes / 1048576).toFixed(2)} MB` : "";
       toast(`已释放 ${r.removed || 0} 张原图${mb}`);
       MATH.meta = null;
@@ -4292,8 +4300,8 @@ document.addEventListener("click", async e => {
     return;
   }
   if (e.target.closest("#mathCancel")) {
-    if (MATH.saveRunning) return;
-    MATH.drafts = []; MATH.draftOpen = false; renderDraft(); return;
+    if (MATH.savingModules.has(MATH.module)) return;
+    MATH.drafts = MATH.drafts.filter(d => d.module !== MATH.module); MATH.draftOpen = false; renderDraft(); return;
   }
   if (e.target.closest("#mathPick")) { $("#mathPhoto")?.click(); return; }
   /* 手机上的「直接拍照」：走带 capture 的那个 input，一键进相机（少一次系统选择器）。
@@ -4307,7 +4315,7 @@ document.addEventListener("click", async e => {
     if (d) {
       if (e.target.closest("[data-d-del]")) {
         MATH.drafts = MATH.drafts.filter(x => x.key !== d.key);
-        if (!MATH.drafts.length) MATH.draftOpen = false;
+        if (!notebookDrafts().length) MATH.draftOpen = false;
         renderDraft();
         return;
       }
@@ -4335,7 +4343,7 @@ document.addEventListener("click", async e => {
     const scrollY = window.scrollY;
 
     try {
-      await api(`/api/math/problems/${id}/result`, {
+      await notebookApi(`/api/math/problems/${id}/result`, {
         method: "POST",
         body: JSON.stringify({ result: act }),
       });
@@ -4362,7 +4370,7 @@ document.addEventListener("click", async e => {
     const val = input ? input.value.trim() : "";
     eSave.disabled = true;
     try {
-      const r = await api(`/api/math/problems/${id}`, {
+      const r = await notebookApi(`/api/math/problems/${id}`, {
         method: "PATCH", body: JSON.stringify({ answer: val }),
       });
       const ans = (r.problem && r.problem.answer) || val;
@@ -4402,7 +4410,7 @@ document.addEventListener("click", async e => {
     const id = Number(del.dataset.mDel);
     if (!confirm("删除这道错题？（复习记录会一起删掉）")) return;
     try {
-      await api("/api/math/problems/" + id, { method: "DELETE" });
+      await notebookApi("/api/math/problems/" + id, { method: "DELETE" });
       if (MATH.openId === id) MATH.openId = null;
       if (MATH.drill && MATH.drill.id === id) { MATH.drill = null; renderDrill(); }
       MATH.meta = null;
@@ -4428,7 +4436,7 @@ document.addEventListener("click", async e => {
     askAns.disabled = true;
     askAns.textContent = "算答案中…";
     try {
-      const r = await api(`/api/math/problems/${id}/answer`, { method: "POST" });
+      const r = await notebookApi(`/api/math/problems/${id}/answer`, { method: "POST" });
       const ans = (r.problem && r.problem.answer) || "";
       if (!ans) throw new Error("还是没算出来，可以自己把答案填进去");
       /* 就地更新三个可能持有这道题的地方，避免整页重载（用户也不喜欢跳走） */
@@ -4462,7 +4470,7 @@ document.addEventListener("click", async e => {
        这样连续刷错题时，下一道会顶上来，你原地继续做就行。 */
     const keepY = window.scrollY;
     try {
-      await api(`/api/math/problems/${id}/result`, {
+      await notebookApi(`/api/math/problems/${id}/result`, {
         method: "POST", body: JSON.stringify({ result: act }),
       });
       MATH.dueAnswers.delete(id);
@@ -4488,7 +4496,7 @@ document.addEventListener("click", async e => {
     res.disabled = true;
     const drillId = MATH.drill && MATH.drill.id;
     try {
-      await api(`/api/math/problems/${MATH.drill.id}/result`, {
+      await notebookApi(`/api/math/problems/${MATH.drill.id}/result`, {
         method: "POST", body: JSON.stringify({ result: act }),
       });
       toast({ right: "做对了，下次间隔拉长", wrong: "没关系，已安排下次工作日复习", skip: "已顺延到后续工作日",

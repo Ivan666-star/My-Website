@@ -28,6 +28,7 @@ from . import db, jobs
 from .review_plan import arrange
 from . import exam_review
 from .review_workload import daily_selection
+from .notebooks import MODULES, subjects_for
 from .ai import prompts  # noqa: F401  （保留导入位，提示词写在本文件里）
 from .ai.provider import AIError, get_provider, parse_json
 from .config import settings
@@ -60,8 +61,7 @@ TOPICS = {
         "大数定律与中心极限定理", "数理统计",
     ],
     # 信号与系统（2026-10-08 加：专业课）。
-    # ⚠️ 它和数学**共用同一套错题库引擎**（同一张表 / 同一条复习阶梯 / 同一条拍照录题链路），
-    #    只是科目与知识点树不同 —— 不要复制出第二个模块，那会让复习、统计、归属隔离各养一套。
+    # 复用录题和复习的代码；所有对外读写必须验证题库范围。
     "信号与系统": [
         "信号与系统基本概念", "连续系统的时域分析", "离散系统的时域分析",
         "傅里叶级数与傅里叶变换", "拉普拉斯变换与s域分析", "Z变换与z域分析",
@@ -78,14 +78,31 @@ KINDS = {"normal": "普通错题", "exam": "考研真题错题"}
 # 「数学一」和「信号与系统」是**两个入口**：谁的数据都不许漏到对方那边去 ——
 # 数学页里不该看到信号题，复习提醒也各归各的（信号的到期数不许出现在数学的角标里）。
 # 引擎仍然共用（同一张表、同一条复习阶梯），但**界面上每一次读写都带 module**，
-# 查询层面就把另一边的科目挡掉。module="" 表示不过滤，只留给回归脚本。
+# 查询层面就把另一边的科目挡掉。只有内部辅助函数允许 module=""；对外默认数学。
 # ============================================================
-MODULES = {
-    # 数学侧把「未分类」也算进来：历史数据里可能还有没选科目的题，
-    # 不算进来它们会从两个入口里同时消失（数据没丢，但界面上看不见了）。
-    "math": ["高等数学", "线性代数", "概率论与数理统计", ""],
-    "sig": ["信号与系统"],
-}
+def require_module(module: str) -> list[str]:
+    try:
+        return subjects_for(module)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+
+
+def require_problem(pid: int, module: str) -> dict:
+    subjects = require_module(module)
+    row = _get(pid)
+    if not row or (row.get("subject") or "") not in subjects:
+        raise HTTPException(404, "当前题库中不存在这道错题")
+    return row
+
+
+def checked_subject(payload: dict, module: str, *, fallback: str = "") -> str:
+    subjects = require_module(module)
+    subject = str(payload.get("subject", fallback) or "").strip()
+    if not subject and module == "sig":
+        subject = "信号与系统"
+    if subject not in subjects:
+        raise HTTPException(400, "科目与当前题库不符，请在对应题库中录入")
+    return subject
 
 # ============================================================
 # 公式分隔符兜底
@@ -154,20 +171,20 @@ def planned_after(interval: int, base: date | None = None) -> str:
     return exam_review.target(base or date.today(), interval, exam_date())
 
 
-def refresh_exam_review() -> dict:
+def refresh_exam_review(module: str = "") -> dict:
     """每个阶段/考试日期只校正一次，保留短间隔和全部答题记录。"""
     uid = db.require_user()
     exam = exam_date()
     policy = exam_review.phase(date.today(), exam)
-    policy["daily_minutes_min"] = int(db.get_user_pref("review_minutes_min", "20"))
-    policy["daily_minutes_max"] = int(db.get_user_pref("review_minutes_max", "30"))
+    where, args = _filters(module=module)
+    stage_key = "exam_review_stage" + ("_" + module if module else "")
     signature = exam.isoformat() + ":" + policy["name"]
     with db.connect() as conn:
         conn.execute("BEGIN IMMEDIATE")
-        old = conn.execute("SELECT value FROM user_profile WHERE user_id=? AND key='exam_review_stage'", (uid,)).fetchone()
+        old = conn.execute("SELECT value FROM user_profile WHERE user_id=? AND key=?", (uid,stage_key)).fetchone()
         if not old or old["value"] != signature:
             rows = conn.execute("SELECT id,next_review,planned_review,review_count,last_review_at,created_at FROM math_problems "
-                                "WHERE user_id=? AND COALESCE(next_review,'')<>''", (uid,)).fetchall()
+                                f"WHERE {where} AND COALESCE(next_review,'')<>''", args).fetchall()
             for r in rows:
                 gap = REVIEW_INTERVALS[min(max(int(r["review_count"] or 0), 0), len(REVIEW_INTERVALS)-1)]
                 anchor = date.fromisoformat(str(r["last_review_at"] or r["created_at"])[:10])
@@ -183,11 +200,11 @@ def refresh_exam_review() -> dict:
                     continue
                 conn.execute("UPDATE math_problems SET planned_review=?,next_review=? WHERE id=? AND user_id=?",
                              (original, actual, r["id"], uid))
-            arrange(conn, uid)
-            conn.execute("INSERT INTO user_profile(user_id,key,value) VALUES(?,'exam_review_stage',?) "
-                         "ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value", (uid, signature))
-        policy["beyond_exam"] = conn.execute("SELECT COUNT(*) FROM math_problems WHERE user_id=? AND next_review>=?",
-                                             (uid, exam.isoformat())).fetchone()[0]
+            arrange(conn, uid, module)
+            conn.execute("INSERT INTO user_profile(user_id,key,value) VALUES(?,?,?) "
+                         "ON CONFLICT(user_id,key) DO UPDATE SET value=excluded.value", (uid, stage_key, signature))
+        policy["beyond_exam"] = conn.execute(f"SELECT COUNT(*) FROM math_problems WHERE {where} AND next_review>=?",
+                                             (*args, exam.isoformat())).fetchone()[0]
     return policy
 
 # 复习动作（返回给前端的说明文案也由这里派生）
@@ -337,7 +354,7 @@ def create_problem(
             (uid, subject, kind, topic, stem, answer, image_path, source_note, first),
         ).lastrowid
         conn.execute("UPDATE math_problems SET planned_review=?,import_key=? WHERE id=? AND user_id=?", (first, request_id or None, pid, uid))
-        arrange(conn, uid)
+        arrange(conn, uid, "sig" if subject == "信号与系统" else "math")
     db.log_event("math_add", pid, {"subject": subject, "topic": topic, "kind": kind})
     return _row(_get(pid))  # type: ignore[return-value]
 
@@ -383,7 +400,7 @@ def update_problem(pid: int, payload: dict) -> dict | None:
         conn.execute("BEGIN IMMEDIATE")
         conn.execute(f"UPDATE math_problems SET {','.join(sets)} WHERE id=? AND user_id=?", (*args, int(pid), uid))
         if "subject" in payload:
-            arrange(conn, uid)
+            arrange(conn, uid, "sig" if payload["subject"] == "信号与系统" else "math")
     return _row(_get(pid))
 
 
@@ -511,7 +528,7 @@ def stats(module: str = "") -> dict:
     }
 
 
-def purge_images() -> dict:
+def purge_images(module: str = "") -> dict:
     """删掉**当前账号**所有已存的原题照片（磁盘文件 + 库里的 image_path）。
 
     用户 2026-10-07 的要求：识图只为了拿到题干，原图没必要长期留着占地方。
@@ -519,7 +536,7 @@ def purge_images() -> dict:
     删文件失败不抛错：数据库指向清掉之后前端就不会再引用它，
     剩个孤儿文件顶多占点空间，不该为它让整个操作失败。
     """
-    w, a = scope_of()
+    w, a = _filters(module=module)
     rows = db.query(
         f"SELECT image_path FROM math_problems WHERE {w} "
         f"AND image_path IS NOT NULL AND image_path<>''",
@@ -589,7 +606,7 @@ def apply_result(pid: int, result: str) -> dict | None:
             "WHERE id=? AND user_id=?",
             (rc, nxt, nxt, result, int(pid), uid),
         )
-        arrange(conn, uid)
+        arrange(conn, uid, "sig" if row["subject"] == "信号与系统" else "math")
         conn.execute(
             "INSERT INTO math_review_log (user_id, problem_id, result, review_count_after) "
             "VALUES (?,?,?,?)",
@@ -756,8 +773,9 @@ def clean_extracted_stem(text: str) -> str:
     return s.strip()
 
 
-def build_extract_prompt(hint_subject: str = "", hint_topic: str = "", marker: dict | None = None) -> str:
-    subjects_txt = " / ".join(SUBJECTS)
+def build_extract_prompt(hint_subject: str = "", hint_topic: str = "", marker: dict | None = None,
+                         module: str = "") -> str:
+    subjects_txt = " / ".join(s for s in (subjects_for(module) if module else SUBJECTS) if s)
     hint = ""
     if hint_subject:
         hint = (
@@ -777,11 +795,11 @@ def build_extract_prompt(hint_subject: str = "", hint_topic: str = "", marker: d
 
 
 def extract_from_image(image_data: str, *, hint_subject: str = "", hint_topic: str = "",
-                       marker: dict | None = None) -> dict:
+                       marker: dict | None = None, module: str = "") -> dict:
     """照片 → 题干 + 分类建议。AI 不可用 / 失败抛 AIError，由上层转成人话提示。"""
     raw = get_provider().chat_vision(
         EXTRACT_SYSTEM,
-        build_extract_prompt(hint_subject, hint_topic, marker),
+        build_extract_prompt(hint_subject, hint_topic, marker, module),
         image_data,
         temperature=0.1,   # 转录任务不需要发挥，越低越忠实
         max_tokens=6000,   # 推理模型会先吃思考额度，给足
@@ -806,6 +824,10 @@ def extract_from_image(image_data: str, *, hint_subject: str = "", hint_topic: s
     # 清单外的名词一律丢弃：宁可留空让用户自己选，也不往库里塞自创分类
     if subject not in SUBJECTS:
         subject = ""
+    if module and subject and subject not in subjects_for(module):
+        raise AIError("识别到的科目与当前题库不符，请切换到对应题库录入，或手动核对题干")
+    if module == "sig" and not subject:
+        subject = "信号与系统"
     if topic not in TOPICS.get(subject, []):
         topic = ""
     kind = str(d.get("kind") or "").strip()
@@ -938,15 +960,15 @@ def fill_answer(pid: int) -> dict | None:
 # 接口
 # ============================================================
 @router.get("/meta")
-def api_meta(module: str = ""):
-    policy = refresh_exam_review()
+def api_meta(module: str = "math"):
+    subjects = require_module(module)
+    policy = refresh_exam_review(module)
     return {
         "review_policy": policy,
         "module": module,
-        "module_subjects": MODULES.get(module) or SUBJECTS,   # 这个入口能选的科目
-        "modules": MODULES,
-        "subjects": SUBJECTS,
-        "topics": TOPICS,
+        "module_subjects": subjects,
+        "subjects": subjects,
+        "topics": {s: TOPICS[s] for s in subjects if s in TOPICS},
         "kinds": KINDS,
         "actions": REVIEW_ACTIONS,
         "intervals": REVIEW_INTERVALS,
@@ -958,9 +980,10 @@ def api_meta(module: str = ""):
 @router.get("/problems")
 def api_list(
     subject: str = "", topic: str = "", kind: str = "",
-    q: str = "", cycle: str = "", module: str = "",
+    q: str = "", cycle: str = "", module: str = "math",
     limit: int = 200, with_analysis: int = 0, offset: int = 0,
 ):
+    require_module(module)
     limit = max(1,min(int(limit),1000))
     offset = max(0,int(offset))
     where, args = _filters(subject=subject, topic=topic, kind=kind, q=q, cycle=cycle, module=module)
@@ -976,8 +999,8 @@ def api_list(
 
 
 @router.get("/problems/{pid}")
-def api_detail(pid: int):
-    row = _row(_get(pid), with_analysis=False)
+def api_detail(pid: int, module: str = "math"):
+    row = _row(require_problem(pid, module), with_analysis=False)
     if not row:
         raise HTTPException(404, "错题不存在")
     row["review_log"] = review_log(pid)
@@ -985,8 +1008,9 @@ def api_detail(pid: int):
 
 
 @router.post("/extract")
-def api_extract(payload: dict = Body(...)):
+def api_extract(payload: dict = Body(...), module: str = "math"):
     """拍照录题：把图片交给识图模型，只取回题干（附带分类建议）。"""
+    checked_subject(payload, module)
     img = (payload.get("image") or "").strip()
     if not img:
         raise HTTPException(400, "没有收到图片")
@@ -1008,6 +1032,7 @@ def api_extract(payload: dict = Body(...)):
             hint_subject=(payload.get("subject") or "").strip(),
             hint_topic=(payload.get("topic") or "").strip(),
             marker=marker,
+            module=module,
         )
     except AIError as exc:
         raise HTTPException(502, str(exc)) from exc
@@ -1015,8 +1040,9 @@ def api_extract(payload: dict = Body(...)):
 
 
 @router.post("/extract/jobs")
-def api_start_extract(payload: dict = Body(...)):
+def api_start_extract(payload: dict = Body(...), module: str = "math"):
     """立即确认收到图片；耗时识别由后台完成，避免公网长请求超时。"""
+    checked_subject(payload, module)
     job_id = str(payload.get("request_id") or uuid.uuid4().hex)
     if not re.fullmatch(r"[a-f0-9]{32}", job_id):
         raise HTTPException(400, "识别任务编号无效")
@@ -1026,7 +1052,7 @@ def api_start_extract(payload: dict = Body(...)):
     if len(image) > 16 * 1024 * 1024 + 128:
         raise HTTPException(413, "图片超过 12MB，请裁剪后重试")
     try:
-        result = jobs.start("math-extract-" + job_id, lambda: api_extract(payload),
+        result = jobs.start(module + "-extract-" + job_id, lambda: api_extract(payload, module),
                             label="识别题干", ephemeral=True)
     except ValueError as exc:
         raise HTTPException(429, str(exc)) from exc
@@ -1034,34 +1060,37 @@ def api_start_extract(payload: dict = Body(...)):
 
 
 @router.get("/extract/jobs/{job_id}")
-def api_extract_status(job_id: str):
+def api_extract_status(job_id: str, module: str = "math"):
+    require_module(module)
     if not re.fullmatch(r"[a-f0-9]{32}", job_id):
         raise HTTPException(404, "识别任务不存在")
-    result = jobs.status("math-extract-" + job_id)
+    result = jobs.status(module + "-extract-" + job_id)
     if not result["exists"]:
         raise HTTPException(404, "识别任务已过期或服务已重启，请重新识别")
     return {"job_id": job_id, **result}
 
 
 @router.post("/images/purge")
-def api_purge_images():
+def api_purge_images(module: str = "math"):
     """清掉本账号所有已存的原图（录题流程本身已经不留图了）。"""
-    return purge_images()
+    require_module(module)
+    return purge_images(module)
 
 
 @router.post("/problems")
-def api_create(payload: dict = Body(...)):
+def api_create(payload: dict = Body(...), module: str = "math"):
+    subject = checked_subject(payload, module)
     try:
         row = create_problem(
             payload.get("stem") or "",
-            subject=(payload.get("subject") or "").strip(),
+            subject=subject,
             topic=(payload.get("topic") or "").strip(),
             kind=(payload.get("kind") or "normal").strip(),
             image_path=(payload.get("image_path") or "").strip(),
             source_note=(payload.get("source_note") or "").strip(),
             image_data=(payload.get("image") or "").strip(),
             answer=(payload.get("answer") or "").strip(),      # 可以手填最终答案
-            request_id=str(payload.get("request_id") or "")[:64],
+            request_id=(module + ":" + str(payload["request_id"])[:55]) if payload.get("request_id") else "",
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc)) from exc
@@ -1069,9 +1098,9 @@ def api_create(payload: dict = Body(...)):
 
 
 @router.get("/problems/{pid}/image")
-def api_image(pid: int):
+def api_image(pid: int, module: str = "math"):
     """原题照片。归属不对一律 404（不区分「不存在」和「不是你的」，避免泄露）。"""
-    row = _get(pid)
+    row = require_problem(pid, module)
     if not row:
         raise HTTPException(404, "错题不存在")
     f = image_file(row.get("image_path") or "")
@@ -1081,7 +1110,10 @@ def api_image(pid: int):
 
 
 @router.patch("/problems/{pid}")
-def api_update(pid: int, payload: dict = Body(...)):
+def api_update(pid: int, payload: dict = Body(...), module: str = "math"):
+    require_problem(pid, module)
+    if "subject" in payload:
+        payload = {**payload, "subject": checked_subject(payload, module)}
     row = update_problem(pid, payload or {})
     if not row:
         raise HTTPException(404, "错题不存在")
@@ -1089,27 +1121,28 @@ def api_update(pid: int, payload: dict = Body(...)):
 
 
 @router.delete("/problems/{pid}")
-def api_delete(pid: int):
+def api_delete(pid: int, module: str = "math"):
+    require_problem(pid, module)
     if not delete_problem(pid):
         raise HTTPException(404, "错题不存在")
     return {"ok": True}
 
 
 @router.post("/problems/{pid}/analyze")
-def api_analyze(pid: int):
-    if not _get(pid):
-        raise HTTPException(404, "错题不存在")
+def api_analyze(pid: int, module: str = "math"):
+    require_problem(pid, module)
     raise HTTPException(409, "错题库仅保留题干与最终答案，知识点和解析生成已停用")
 
 
 @router.post("/problems/{pid}/answer")
-def api_answer(pid: int):
+def api_answer(pid: int, module: str = "math"):
     """只补「最终答案」—— 不生成解析。
 
     给两类题用：① 老数据（那时候答案和解法混在一列）；
     ② 手动录的题（没经过拍照识别，自然没有答案）。
     单独一个接口、单独一段短提示词：比走 analyze 快得多，也便宜得多。
     """
+    require_problem(pid, module)
     try:
         row = fill_answer(pid)
     except AIError as exc:
@@ -1120,7 +1153,8 @@ def api_answer(pid: int):
 
 
 @router.post("/problems/{pid}/result")
-def api_result(pid: int, payload: dict = Body(...)):
+def api_result(pid: int, payload: dict = Body(...), module: str = "math"):
+    require_problem(pid, module)
     try:
         row = apply_result(pid, (payload.get("result") or "").strip())
     except ValueError as exc:
@@ -1132,7 +1166,8 @@ def api_result(pid: int, payload: dict = Body(...)):
 
 @router.get("/random")
 def api_random(subject: str = "", topic: str = "", kind: str = "", cycle: str = "",
-               module: str = ""):
+               module: str = "math"):
+    require_module(module)
     row = random_problem(subject=subject, topic=topic, kind=kind, cycle=cycle, module=module)
     if not row:
         return {"ok": True, "problem": None}
@@ -1143,7 +1178,7 @@ def api_random(subject: str = "", topic: str = "", kind: str = "", cycle: str = 
 def api_review_plan(module: str = "math", days: int = Query(14, ge=1, le=60), summary: int = 0):
     if module not in MODULES:
         raise HTTPException(400, "请选择数学或信号与系统")
-    policy = refresh_exam_review()
+    policy = refresh_exam_review(module)
     w, args = _filters(module=module)
     today = date.today()
     exam = exam_date()
@@ -1164,27 +1199,30 @@ def api_review_plan(module: str = "math", days: int = Query(14, ge=1, le=60), su
 
 
 @router.get("/review/due")
-def api_due(limit: int = 100, module: str = "", all_due: int = 0):
-    policy = refresh_exam_review()
+def api_due(limit: int = 20, module: str = "math", all_due: int = 0, offset: int = 0):
+    require_module(module)
+    policy = refresh_exam_review(module)
     # rest = 周末休息：周六/周日不计复习任务，前端据此显示「周末休息」而不是「今天没有」。
     # include_rest=True：周末照样把「还没复习的」列出来，用户想练随时练（2026-10-30 口径）。
     where, args = _filters(cycle="due", module=module, include_rest=True)
-    daily = daily_selection(date.today(), exam_date())
+    daily = daily_selection(date.today(), exam_date(), module)
     pending = db.query_one(f"SELECT COUNT(*) c FROM math_problems WHERE {where}", args)["c"]
-    if not all_due:
-        ids = daily["ids"]
-        where += " AND id IN (" + (",".join("?" for _ in ids) or "NULL") + ")"
-        args = (*args,*ids)
+    if daily["rest"] and not all_due:
+        where += " AND 1=0"
+    limit, offset = max(1,min(int(limit),1000)), max(0,int(offset))
+    total = pending if policy["days_left"] > 0 and (not daily["rest"] or all_due) else 0
     rows = db.query(
         f"SELECT p.* FROM math_problems p WHERE {where} ORDER BY "
-        "(SELECT COUNT(*) FROM math_review_log l WHERE l.user_id=p.user_id AND l.problem_id=p.id "
-        "AND l.result='wrong' AND l.created_at>=?) DESC,p.next_review,p.id LIMIT ?",
-        (*args, (date.today()-timedelta(days=30)).isoformat(), max(1,min(int(limit),1000))),
+        "p.next_review,(SELECT COUNT(*) FROM math_review_log l WHERE l.user_id=p.user_id AND l.problem_id=p.id "
+        "AND l.result='wrong' AND l.created_at>=?) DESC,p.id LIMIT ? OFFSET ?",
+        (*args, (date.today()-timedelta(days=30)).isoformat(), limit, offset),
     ) if policy["days_left"] > 0 else []
     items = [_row(r, with_analysis=False) for r in rows]
-    return {"items": items, "rest": daily["rest"],"daily":daily,"pending":pending,"all_due":bool(all_due)}
+    return {"items": items, "rest": daily["rest"],"daily":daily,"pending":pending,"all_due":bool(all_due),
+            "total":total,"next_offset":offset+limit if offset+limit<total else None}
 
 
 @router.get("/stats")
-def api_stats(module: str = ""):
+def api_stats(module: str = "math"):
+    require_module(module)
     return stats(module)

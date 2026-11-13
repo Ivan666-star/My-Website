@@ -43,14 +43,15 @@ class ExamReview(unittest.TestCase):
             math.refresh_exam_review()
             self.assertEqual(after,math._get(p["id"]))
 
-    def test_exam_date_and_budget_are_user_scoped(self):
+    def test_exam_date_is_user_scoped_and_time_budget_is_inactive(self):
         with db.as_user(1):
             db.set_user_pref("exam_date","2027-11-20")
             db.set_user_pref("review_minutes_min","45")
             db.set_user_pref("review_minutes_max","60")
             policy=math.refresh_exam_review()
             self.assertEqual(policy["exam_date"],"2027-11-20")
-            self.assertEqual((policy["daily_minutes_min"],policy["daily_minutes_max"]),(45,60))
+            self.assertNotIn("daily_minutes_min", policy)
+            self.assertNotIn("daily_minutes_max", policy)
         with db.as_user(2):
             self.assertEqual(math.refresh_exam_review()["exam_date"],"2027-12-18")
 
